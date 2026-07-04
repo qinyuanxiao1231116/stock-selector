@@ -4,7 +4,13 @@
 import os
 
 # Server酱推送密钥（https://sct.ftqq.com/）
-SEND_KEY = os.environ.get('SEND_KEY', 'YOUR_SEND_KEY_HERE')
+# 支持多人推送，每人一个 SendKey，添加到列表中即可
+_env_key = os.environ.get('SEND_KEY', '')
+SEND_KEYS = [_env_key] if _env_key else [
+    'YOUR_SEND_KEY_HERE',
+    # 添加更多人的 SendKey：
+    # 'ANOTHER_SEND_KEY_HERE',
+]
 
 # 选股阈值参数
 LIMIT_UP_THRESHOLD = 10000    # 涨停封单最小手数

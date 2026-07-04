@@ -3,7 +3,7 @@ import os
 import time
 import datetime
 import logging
-from config import SEND_KEY, LOG_FILE, LIMIT_UP_THRESHOLD, GAP_THRESHOLD, BUY_VOLUME_THRESHOLD, BUY_PRICE_THRESHOLD
+from config import SEND_KEYS, LOG_FILE, LIMIT_UP_THRESHOLD, GAP_THRESHOLD, BUY_VOLUME_THRESHOLD, BUY_PRICE_THRESHOLD
 from stock_filter import StockFilter
 from wechat_notifier import WechatNotifier
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class StockServer:
     def __init__(self):
         self.filter = StockFilter()
-        self.notifier = WechatNotifier(SEND_KEY)
+        self.notifier = WechatNotifier(SEND_KEYS)
         self.is_running = True
     
     def log_and_send(self, title, content):
@@ -148,7 +148,7 @@ class StockServer:
     
     def run(self):
         logger.info("=== A股选股服务器启动 ===")
-        logger.info(f"SendKey: {SEND_KEY[:10]}...")
+        logger.info(f"SendKey: {len(SEND_KEYS)}个已配置")
         logger.info("每日运行时间: 9:20-9:24(每分钟)、9:25(最后一次)、14:45(尾盘)")
         
         try:
