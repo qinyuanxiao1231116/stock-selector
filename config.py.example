@@ -1,0 +1,16 @@
+# 复制此文件为 config.py 并填入实际值
+# cp config.py.example config.py
+
+import os
+
+# Server酱推送密钥（https://sct.ftqq.com/）
+SEND_KEY = os.environ.get('SEND_KEY', 'YOUR_SEND_KEY_HERE')
+
+# 选股阈值参数
+LIMIT_UP_THRESHOLD = 10000    # 涨停封单最小手数
+GAP_THRESHOLD = 1.0           # 跳空高开最小百分比
+BUY_VOLUME_THRESHOLD = 5000   # 抢筹买一量最小手数
+BUY_PRICE_THRESHOLD = 2.0     # 抢筹涨幅最小百分比
+
+# 日志文件路径
+LOG_FILE = 'stock_selector.log'
