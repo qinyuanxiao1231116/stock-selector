@@ -4,12 +4,19 @@
 import os
 
 # Server酱推送密钥（https://sct.ftqq.com/）
-# 支持多人推送，每人一个 SendKey，添加到列表中即可
+# 免费每天5条，支持多人推送，每人一个 SendKey
 _env_key = os.environ.get('SEND_KEY', '')
 SEND_KEYS = [_env_key] if _env_key else [
     'YOUR_SEND_KEY_HERE',
     # 添加更多人的 SendKey：
     # 'ANOTHER_SEND_KEY_HERE',
+]
+
+# WxPusher推送配置（https://wxpusher.zjiecode.com/）
+# 免费不限条数，需先在官网创建应用获取AppToken，用户扫码关注后获取UID
+WXPUSHER_APP_TOKEN = os.environ.get('WXPUSHER_APP_TOKEN', '')  # 填入你的 AppToken，留空则不启用
+WXPUSHER_UIDS = [
+    # 'UID_xxxxxxxx',  # 每个关注用户一个UID
 ]
 
 # 选股阈值参数

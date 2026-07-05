@@ -3,9 +3,9 @@ import os
 import time
 import datetime
 import logging
-from config import SEND_KEYS, LOG_FILE, LIMIT_UP_THRESHOLD, GAP_THRESHOLD, BUY_VOLUME_THRESHOLD, BUY_PRICE_THRESHOLD
+from config import SEND_KEYS, WXPUSHER_APP_TOKEN, WXPUSHER_UIDS, LOG_FILE, LIMIT_UP_THRESHOLD, GAP_THRESHOLD, BUY_VOLUME_THRESHOLD, BUY_PRICE_THRESHOLD
 from stock_filter import StockFilter
-from wechat_notifier import WechatNotifier
+from wechat_notifier import WechatNotifier, WxPusherNotifier, MultiNotifier
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,7 +20,12 @@ logger = logging.getLogger(__name__)
 class StockServer:
     def __init__(self):
         self.filter = StockFilter()
-        self.notifier = WechatNotifier(SEND_KEYS)
+        notifiers = []
+        if SEND_KEYS:
+            notifiers.append(WechatNotifier(SEND_KEYS))
+        if WXPUSHER_APP_TOKEN and WXPUSHER_UIDS:
+            notifiers.append(WxPusherNotifier(WXPUSHER_APP_TOKEN, WXPUSHER_UIDS))
+        self.notifier = MultiNotifier(notifiers)
         self.is_running = True
     
     def log_and_send(self, title, content):
@@ -148,7 +153,12 @@ class StockServer:
     
     def run(self):
         logger.info("=== A股选股服务器启动 ===")
-        logger.info(f"SendKey: {len(SEND_KEYS)}个已配置")
+        channels = []
+        if SEND_KEYS:
+            channels.append(f"Server酱({len(SEND_KEYS)}人)")
+        if WXPUSHER_APP_TOKEN and WXPUSHER_UIDS:
+            channels.append(f"WxPusher({len(WXPUSHER_UIDS)}人)")
+        logger.info(f"推送通道: {', '.join(channels) if channels else '未配置'}")
         logger.info("每日运行时间: 9:20-9:24(每分钟)、9:25(最后一次)、14:45(尾盘)")
         
         try:
