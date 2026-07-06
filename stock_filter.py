@@ -1,5 +1,17 @@
 from data_fetcher import StockDataFetcher
 
+def to_float(val, default=0):
+    try:
+        return float(val) if val is not None and val != '' else default
+    except (ValueError, TypeError):
+        return default
+
+def to_int(val, default=0):
+    try:
+        return int(float(val)) if val is not None and val != '' else default
+    except (ValueError, TypeError):
+        return default
+
 class StockFilter:
     def __init__(self):
         self.fetcher = StockDataFetcher()
@@ -13,10 +25,10 @@ class StockFilter:
         for stock in bidding_data:
             code = str(stock.get('f12', ''))
             name = str(stock.get('f14', ''))
-            price = stock.get('f2', 0) / 100 if stock.get('f2') else 0
-            prev_close = stock.get('f20', 0) / 100 if stock.get('f20') else 0
-            limit_up_price = stock.get('f15', 0) / 100 if stock.get('f15') else 0
-            buy1_volume = stock.get('f47', 0) if stock.get('f47') else 0
+            price = to_float(stock.get('f2')) / 100
+            prev_close = to_float(stock.get('f20')) / 100
+            limit_up_price = to_float(stock.get('f15')) / 100
+            buy1_volume = to_int(stock.get('f47'))
             
             if price > 0 and limit_up_price > 0:
                 price_diff = abs(price - limit_up_price)
@@ -63,9 +75,9 @@ class StockFilter:
         for stock in bidding_data:
             code = str(stock.get('f12', ''))
             name = str(stock.get('f14', ''))
-            current_price = stock.get('f2', 0) / 100 if stock.get('f2') else 0
-            prev_close = stock.get('f20', 0) / 100 if stock.get('f20') else 0
-            open_price = stock.get('f26', 0) / 100 if stock.get('f26') else 0
+            current_price = to_float(stock.get('f2')) / 100
+            prev_close = to_float(stock.get('f20')) / 100
+            open_price = to_float(stock.get('f26')) / 100
             
             if prev_close > 0 and current_price > 0:
                 gap_percent = (current_price - prev_close) / prev_close * 100
@@ -111,10 +123,10 @@ class StockFilter:
         for stock in bidding_data:
             code = str(stock.get('f12', ''))
             name = str(stock.get('f14', ''))
-            current_price = stock.get('f2', 0) / 100 if stock.get('f2') else 0
-            prev_close = stock.get('f20', 0) / 100 if stock.get('f20') else 0
-            buy1_volume = stock.get('f47', 0) if stock.get('f47') else 0
-            sell1_volume = stock.get('f48', 0) if stock.get('f48') else 0
+            current_price = to_float(stock.get('f2')) / 100
+            prev_close = to_float(stock.get('f20')) / 100
+            buy1_volume = to_int(stock.get('f47'))
+            sell1_volume = to_int(stock.get('f48'))
             
             if prev_close > 0 and current_price > 0:
                 price_increase = (current_price - prev_close) / prev_close * 100
@@ -214,7 +226,7 @@ class StockFilter:
                 continue
             
             today_kline = klines[-1]
-            current_price = stock.get('f2', 0) / 100 if stock.get('f2') else 0
+            current_price = to_float(stock.get('f2')) / 100
             
             is_doji_pattern = self.is_doji(today_kline)
             is_inverted_t = self.is_inverted_hammer(current_price, today_kline)
