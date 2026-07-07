@@ -30,7 +30,7 @@ class StockFilter:
             limit_up_price = to_float(stock.get('f15')) / 100
             buy1_volume = to_int(stock.get('f47'))
             
-            if price > 0 and limit_up_price > 0:
+            if price > 0 and limit_up_price > 0 and prev_close > 0:
                 price_diff = abs(price - limit_up_price)
                 if price_diff <= 0.01 and buy1_volume >= threshold:
                     candidates.append({
@@ -186,6 +186,9 @@ class StockFilter:
         body_size = abs(close_p - open_p)
         range_size = high_p - low_p
         
+        if range_size == 0:
+            return False
+        
         return body_size / range_size <= 0.15
     
     def is_inverted_hammer(self, current_price, kline):
@@ -202,6 +205,9 @@ class StockFilter:
         upper_shadow = high_p - max(open_p, current_price)
         body_size = abs(current_price - open_p)
         range_size = high_p - low_p
+        
+        if range_size == 0:
+            return False
         
         return upper_shadow / range_size >= 0.6 and body_size / range_size <= 0.3
     
