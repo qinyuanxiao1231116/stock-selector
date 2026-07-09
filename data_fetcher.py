@@ -1,6 +1,10 @@
 import requests
 import time
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from sina_fetcher import SinaFetcher
+
+logger = logging.getLogger(__name__)
 
 class StockDataFetcher:
     def __init__(self):
@@ -9,8 +13,43 @@ class StockDataFetcher:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
         })
         self.timeout = 3
-    
+        self.fallback = SinaFetcher()
+        self.use_fallback = False
+
+    def _try_with_fallback(self, primary_func, fallback_func, func_name):
+        """尝试主数据源，失败时自动降级到备选"""
+        if self.use_fallback:
+            logger.info(f"[{func_name}] 使用备选数据源(新浪)")
+            return fallback_func()
+
+        try:
+            result = primary_func()
+            if result is not None and len(result) > 0 if isinstance(result, list) else result:
+                return result
+            # 主数据源返回空，尝试备选
+            logger.warning(f"[{func_name}] 主数据源返回空，尝试备选数据源")
+        except Exception as e:
+            logger.warning(f"[{func_name}] 主数据源失败: {e}，尝试备选数据源")
+
+        try:
+            result = fallback_func()
+            if result:
+                logger.info(f"[{func_name}] 备选数据源成功，后续优先使用备选")
+                self.use_fallback = True
+                return result
+        except Exception as e:
+            logger.error(f"[{func_name}] 备选数据源也失败: {e}")
+
+        return [] if isinstance(result, list) else {}
+
     def get_collection_bidding(self):
+        return self._try_with_fallback(
+            self._get_collection_bidding_primary,
+            self.fallback.get_collection_bidding,
+            "集合竞价"
+        )
+
+    def _get_collection_bidding_primary(self):
         url = 'http://push2.eastmoney.com/api/qt/clist/get'
         params = {
             'pn': '1',
@@ -24,16 +63,19 @@ class StockDataFetcher:
             'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
             'fields': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f26,f27,f28,f30,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40,f41,f42,f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65'
         }
-        try:
-            response = self.session.get(url, params=params, timeout=self.timeout)
-            data = response.json()
-            if data['data'] and data['data']['diff']:
-                return data['data']['diff']
-            return []
-        except Exception as e:
-            print(f"获取集合竞价数据失败: {e}")
-            return []
-    
+        response = self.session.get(url, params=params, timeout=self.timeout)
+        data = response.json()
+        if data['data'] and data['data']['diff']:
+            return data['data']['diff']
+        return []
+
+    def get_stock_plates_batch(self, codes):
+        return self._try_with_fallback(
+            lambda: self._get_stock_plates_batch_primary(codes),
+            lambda: self.fallback.get_stock_plates_batch(codes),
+            "板块信息"
+        )
+
     def _get_stock_plate_single(self, code):
         url = f'http://push2.eastmoney.com/api/qt/stock/get'
         params = {
@@ -54,8 +96,8 @@ class StockDataFetcher:
             return {'code': code, 'industry': '', 'concept': '', 'region': '', 'market': ''}
         except Exception:
             return {'code': code, 'industry': '', 'concept': '', 'region': '', 'market': ''}
-    
-    def get_stock_plates_batch(self, codes):
+
+    def _get_stock_plates_batch_primary(self, codes):
         plate_info = {}
         with ThreadPoolExecutor(max_workers=20) as executor:
             future_to_code = {executor.submit(self._get_stock_plate_single, code): code for code in codes}
@@ -63,7 +105,14 @@ class StockDataFetcher:
                 result = future.result()
                 plate_info[result['code']] = result
         return plate_info
-    
+
+    def get_kline_data_batch(self, codes, days=7):
+        return self._try_with_fallback(
+            lambda: self._get_kline_data_batch_primary(codes, days),
+            lambda: self.fallback.get_kline_data_batch(codes, days),
+            "K线数据"
+        )
+
     def _get_kline_single(self, code, days=7):
         url = 'http://push2his.eastmoney.com/api/qt/stock/kline/get'
         params = {
@@ -101,8 +150,8 @@ class StockDataFetcher:
             return {'code': code, 'klines': []}
         except Exception:
             return {'code': code, 'klines': []}
-    
-    def get_kline_data_batch(self, codes, days=7):
+
+    def _get_kline_data_batch_primary(self, codes, days=7):
         kline_info = {}
         with ThreadPoolExecutor(max_workers=20) as executor:
             future_to_code = {executor.submit(self._get_kline_single, code, days): code for code in codes}
