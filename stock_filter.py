@@ -12,6 +12,13 @@ def to_int(val, default=0):
     except (ValueError, TypeError):
         return default
 
+def safe_div(a, b, default=0):
+    """安全除法，分母为0时返回default"""
+    try:
+        return a / b if b != 0 else default
+    except (TypeError, ZeroDivisionError):
+        return default
+
 class StockFilter:
     def __init__(self):
         self.fetcher = StockDataFetcher()
@@ -58,7 +65,7 @@ class StockFilter:
                 'limit_up_price': round(c['limit_up_price'], 2),
                 'buy1_volume': c['buy1_volume'],
                 'prev_close': round(c['prev_close'], 2),
-                'change_percent': round((c['price'] - c['prev_close']) / c['prev_close'] * 100, 2) if c['prev_close'] > 0 else 0,
+                'change_percent': round(safe_div(c['price'] - c['prev_close'], c['prev_close']) * 100, 2),
                 'industry': plate.get('industry', ''),
                 'concept': plate.get('concept', '')
             })
@@ -80,7 +87,7 @@ class StockFilter:
             open_price = to_float(stock.get('f26')) / 100
             
             if prev_close > 0 and current_price > 0:
-                gap_percent = (current_price - prev_close) / prev_close * 100
+                gap_percent = safe_div(current_price - prev_close, prev_close) * 100
                 if gap_percent >= gap_threshold:
                     candidates.append({
                         'code': code,
@@ -129,8 +136,8 @@ class StockFilter:
             sell1_volume = to_int(stock.get('f48'))
             
             if prev_close > 0 and current_price > 0:
-                price_increase = (current_price - prev_close) / prev_close * 100
-                buy_sell_ratio = buy1_volume / (sell1_volume + 1)
+                price_increase = safe_div(current_price - prev_close, prev_close) * 100
+                buy_sell_ratio = safe_div(buy1_volume, sell1_volume + 1)
                 if buy1_volume >= volume_threshold and price_increase >= price_increase_threshold and buy_sell_ratio > 2:
                     candidates.append({
                         'code': code,
@@ -189,7 +196,7 @@ class StockFilter:
         if range_size == 0:
             return False
         
-        return body_size / range_size <= 0.15
+        return safe_div(body_size, range_size) <= 0.15
     
     def is_inverted_hammer(self, current_price, kline):
         open_p = kline.get('open', 0)
@@ -209,7 +216,7 @@ class StockFilter:
         if range_size == 0:
             return False
         
-        return upper_shadow / range_size >= 0.6 and body_size / range_size <= 0.3
+        return safe_div(upper_shadow, range_size) >= 0.6 and safe_div(body_size, range_size) <= 0.3
     
     def filter_late_session(self, days=7):
         bidding_data = self.fetcher.get_collection_bidding()
