@@ -19,26 +19,39 @@ class StockDataFetcher:
     def _try_with_fallback(self, primary_func, fallback_func, func_name):
         """尝试主数据源，失败时自动降级到备选"""
         if self.use_fallback:
-            logger.info(f"[{func_name}] 使用备选数据源(新浪)")
+            logger.info(f"[数据源切换] {func_name} -> 备选(新浪)，原因: 已标记降级")
             return fallback_func()
+
+        logger.info(f"[数据源切换] {func_name} -> 主(东方财富)，尝试请求...")
+        start_time = time.time()
+        result = []
 
         try:
             result = primary_func()
+            elapsed = time.time() - start_time
             if result is not None and len(result) > 0 if isinstance(result, list) else result:
+                logger.info(f"[数据源切换] {func_name} <- 主(东方财富) 成功，耗时{elapsed:.2f}s，数据量={len(result) if isinstance(result, list) else 'dict'}")
                 return result
             # 主数据源返回空，尝试备选
-            logger.warning(f"[{func_name}] 主数据源返回空，尝试备选数据源")
+            logger.warning(f"[数据源切换] {func_name} <- 主(东方财富) 返回空数据，耗时{elapsed:.2f}s，降级到备选")
         except Exception as e:
-            logger.warning(f"[{func_name}] 主数据源失败: {e}，尝试备选数据源")
+            elapsed = time.time() - start_time
+            logger.warning(f"[数据源切换] {func_name} <- 主(东方财富) 异常: {type(e).__name__}: {e}，耗时{elapsed:.2f}s，降级到备选")
+
+        logger.info(f"[数据源切换] {func_name} -> 备选(新浪)，尝试请求...")
+        fallback_start = time.time()
 
         try:
             result = fallback_func()
+            fallback_elapsed = time.time() - fallback_start
             if result:
-                logger.info(f"[{func_name}] 备选数据源成功，后续优先使用备选")
+                logger.info(f"[数据源切换] {func_name} <- 备选(新浪) 成功，耗时{fallback_elapsed:.2f}s，数据量={len(result) if isinstance(result, list) else 'dict'}，后续优先使用备选")
                 self.use_fallback = True
                 return result
+            logger.warning(f"[数据源切换] {func_name} <- 备选(新浪) 返回空数据")
         except Exception as e:
-            logger.error(f"[{func_name}] 备选数据源也失败: {e}")
+            fallback_elapsed = time.time() - fallback_start
+            logger.error(f"[数据源切换] {func_name} <- 备选(新浪) 异常: {type(e).__name__}: {e}，耗时{fallback_elapsed:.2f}s")
 
         return [] if isinstance(result, list) else {}
 
