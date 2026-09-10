@@ -55,7 +55,10 @@ class StockServer:
                 title = f"📈 集合竞价选股 ({datetime.datetime.now().strftime('%H:%M')})"
                 self.log_and_send(title, content)
             else:
+                title = f"📊 集合竞价选股 ({datetime.datetime.now().strftime('%H:%M')})"
+                content = f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n今日集合竞价暂无符合条件的股票。\n\n- 涨停封单加大: 0只\n- 跳空高开: 0只\n- 抢筹动作: 0只"
                 logger.info("暂无符合条件的股票")
+                self.notifier.send_message(title, content)
             
         except Exception as e:
             logger.error(f"集合竞价选股出错: {e}", exc_info=True)
@@ -73,7 +76,10 @@ class StockServer:
                 title = f"📊 尾盘选股 ({datetime.datetime.now().strftime('%H:%M')})"
                 self.log_and_send(title, content)
             else:
+                title = f"📊 尾盘选股 ({datetime.datetime.now().strftime('%H:%M')})"
+                content = f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n今日尾盘暂无符合条件的股票（条件: 近7日涨停 + 当日十字星/倒T形态）。"
                 logger.info("暂无符合条件的股票")
+                self.notifier.send_message(title, content)
             
         except Exception as e:
             logger.error(f"尾盘选股出错: {e}", exc_info=True)
@@ -133,13 +139,12 @@ class StockServer:
             if days_ahead == 0:
                 days_ahead = 7
             next_trading_day = now + datetime.timedelta(days=days_ahead)
-            return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 20, 0)
+            return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 25, 0)
         
-        run_times = []
-        for m in range(20, 25):
-            run_times.append(datetime.datetime(now.year, now.month, now.day, 9, m, 0))
-        run_times.append(datetime.datetime(now.year, now.month, now.day, 9, 25, 0))
-        run_times.append(datetime.datetime(now.year, now.month, now.day, 14, 45, 0))
+        run_times = [
+            datetime.datetime(now.year, now.month, now.day, 9, 25, 0),
+            datetime.datetime(now.year, now.month, now.day, 14, 45, 0),
+        ]
         
         for run_time in run_times:
             if run_time > now:
@@ -149,7 +154,7 @@ class StockServer:
         if days_ahead == 0:
             days_ahead = 7
         next_trading_day = now + datetime.timedelta(days=days_ahead)
-        return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 20, 0)
+        return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 25, 0)
     
     def run(self):
         logger.info("=== A股选股服务器启动 ===")
@@ -159,7 +164,7 @@ class StockServer:
         if WXPUSHER_APP_TOKEN and WXPUSHER_UIDS:
             channels.append(f"WxPusher({len(WXPUSHER_UIDS)}人)")
         logger.info(f"推送通道: {', '.join(channels) if channels else '未配置'}")
-        logger.info("每日运行时间: 9:20-9:24(每分钟)、9:25(最后一次)、14:45(尾盘)")
+        logger.info("每日运行时间: 9:25(集合竞价)、14:45(尾盘)")
         
         try:
             while self.is_running:
@@ -186,10 +191,7 @@ class StockServer:
                     time.sleep(min(sleep_seconds, 3600))
                     continue
                 
-                if hour == 9 and 20 <= minute <= 24:
-                    self.run_morning_selection()
-                    time.sleep(2)
-                elif hour == 9 and minute == 25:
+                if hour == 9 and minute == 25:
                     self.run_morning_selection()
                     logger.info("集合竞价选股结束，等待尾盘时段...")
                     time.sleep(2)
