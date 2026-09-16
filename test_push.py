@@ -51,35 +51,21 @@ def test_morning_selection_push():
 
     server = StockServer()
 
-    # 模拟涨停封单加大的股票
-    limit_up_stocks = [
-        {'code': '600519', 'name': '贵州茅台', 'price': '1888.00', 'limit_up_price': '1898.88',
-         'buy1_volume': '52000', 'change_percent': '9.98', 'industry': '白酒'},
-        {'code': '300750', 'name': '宁德时代', 'price': '218.50', 'limit_up_price': '220.15',
-         'buy1_volume': '38000', 'change_percent': '10.00', 'industry': '锂电池'},
+    # 模拟集合竞价选股结果（竞价金额>1000万, 涨幅3%-8%, 9:25较9:24拉升>=2%）
+    auction_stocks = [
+        {'code': '600519', 'name': '贵州茅台', 'price': '1888.00', 'prev_close': '1800.00',
+         'gain': '4.89', 'gain_924': '2.50', 'gain_diff': '2.39', 'amount': '25000.00', 'industry': '白酒'},
+        {'code': '300750', 'name': '宁德时代', 'price': '218.50', 'prev_close': '210.00',
+         'gain': '4.05', 'gain_924': '1.80', 'gain_diff': '2.25', 'amount': '18000.00', 'industry': '锂电池'},
+        {'code': '002594', 'name': '比亚迪', 'price': '268.00', 'prev_close': '258.00',
+         'gain': '3.88', 'gain_924': '1.50', 'gain_diff': '2.38', 'amount': '32000.00', 'industry': '新能源车'},
     ]
 
-    # 模拟跳空高开的股票
-    gapping_up_stocks = [
-        {'code': '000858', 'name': '五粮液', 'current_price': '168.30', 'prev_close': '165.00',
-         'gap_percent': '2.00', 'industry': '白酒'},
-        {'code': '601012', 'name': '隆基绿能', 'current_price': '28.50', 'prev_close': '27.80',
-         'gap_percent': '2.52', 'industry': '光伏'},
-        {'code': '002594', 'name': '比亚迪', 'current_price': '268.00', 'prev_close': '262.00',
-         'gap_percent': '2.29', 'industry': '新能源车'},
-    ]
-
-    # 模拟抢筹动作的股票
-    buying_rush_stocks = [
-        {'code': '688981', 'name': '中芯国际', 'current_price': '52.80', 'price_increase': '3.50',
-         'buy1_volume': '12000', 'buy_sell_ratio': '5.2', 'industry': '半导体'},
-    ]
-
-    content = server.format_notification(limit_up_stocks, gapping_up_stocks, buying_rush_stocks)
+    content = server.format_auction_notification(auction_stocks)
     title = f"📈 集合竞价选股 (测试 {datetime.datetime.now().strftime('%H:%M')})"
 
     print(f"\n推送标题: {title}")
-    print(f"选股结果: 涨停{len(limit_up_stocks)}只, 跳空{len(gapping_up_stocks)}只, 抢筹{len(buying_rush_stocks)}只")
+    print(f"选股结果: 集合竞价{len(auction_stocks)}只")
 
     result = server.notifier.send_message(title, content)
     print(f"推送结果: {'成功' if result else '失败'}")
@@ -94,12 +80,12 @@ def test_late_session_push():
 
     server = StockServer()
 
-    # 模拟尾盘选股结果（十字星/倒T形态）
+    # 模拟尾盘选股结果
     late_session_stocks = [
         {'code': '600036', 'name': '招商银行', 'current_price': '35.20', 'open': '35.18',
-         'high': '35.50', 'low': '34.90', 'pattern': '十字星', 'industry': '银行'},
+         'high': '35.50', 'low': '34.90', 'pattern': '十字星', 'scheme': '方案1', 'industry': '银行'},
         {'code': '601318', 'name': '中国平安', 'current_price': '48.60', 'open': '48.55',
-         'high': '49.10', 'low': '48.50', 'pattern': '倒T', 'industry': '保险'},
+         'high': '49.10', 'low': '48.50', 'pattern': '7连阳', 'scheme': '方案2', 'industry': '保险'},
     ]
 
     content = server.format_late_notification(late_session_stocks)
