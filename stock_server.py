@@ -3,11 +3,24 @@ import os
 import time
 import datetime
 import logging
-from config import (
-    SEND_KEYS, WXPUSHER_APP_TOKEN, WXPUSHER_UIDS, LOG_FILE,
-    AUCTION_AMOUNT_THRESHOLD, AUCTION_GAIN_MIN, AUCTION_GAIN_MAX,
-    AUCTION_GAIN_DIFF_THRESHOLD, LATE_LOOKBACK_DAYS
-)
+
+# 配置常量（带默认值兜底，避免服务器 config.py 未更新导致 ImportError）
+import config as _cfg
+
+SEND_KEYS = getattr(_cfg, 'SEND_KEYS', [])
+WXPUSHER_APP_TOKEN = getattr(_cfg, 'WXPUSHER_APP_TOKEN', '')
+WXPUSHER_UIDS = getattr(_cfg, 'WXPUSHER_UIDS', [])
+LOG_FILE = getattr(_cfg, 'LOG_FILE', 'stock_selector.log')
+
+# 早盘集合竞价条件
+AUCTION_AMOUNT_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_THRESHOLD', 10000000)  # 1000万
+AUCTION_GAIN_MIN = getattr(_cfg, 'AUCTION_GAIN_MIN', 3.0)
+AUCTION_GAIN_MAX = getattr(_cfg, 'AUCTION_GAIN_MAX', 8.0)
+AUCTION_GAIN_DIFF_THRESHOLD = getattr(_cfg, 'AUCTION_GAIN_DIFF_THRESHOLD', 2.0)
+
+# 尾盘选股条件
+LATE_LOOKBACK_DAYS = getattr(_cfg, 'LATE_LOOKBACK_DAYS', 20)
+
 from stock_filter import StockFilter
 from wechat_notifier import WechatNotifier, WxPusherNotifier, MultiNotifier
 

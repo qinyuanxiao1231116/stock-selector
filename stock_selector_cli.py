@@ -4,7 +4,8 @@ import time
 import datetime
 from stock_filter import StockFilter
 from wechat_notifier import WechatNotifier
-from config import LATE_LOOKBACK_DAYS
+import config as _cfg
+LATE_LOOKBACK_DAYS = getattr(_cfg, 'LATE_LOOKBACK_DAYS', 20)
 
 class StockSelectorCLI:
     def __init__(self, send_key):
