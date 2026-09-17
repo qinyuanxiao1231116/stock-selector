@@ -21,12 +21,15 @@ def safe_div(a, b, default=0):
         return default
 
 def calc_gain_percent(stock):
-    """根据行情快照计算涨幅（%），优先用f3，否则用价格/昨收计算"""
+    """根据行情快照计算涨幅（%）。
+    东方财富 clist 接口 fltt=2 下 f3 已直接是百分比（如 4.89 表示 +4.89%），
+    f2 现价、f18 昨收均已直接是元，无需再除以100。
+    """
     f3 = to_float(stock.get('f3'))
     if f3 != 0:
-        return f3 / 100.0
-    price = to_float(stock.get('f2')) / 100
-    prev_close = to_float(stock.get('f18')) / 100
+        return f3
+    price = to_float(stock.get('f2'))
+    prev_close = to_float(stock.get('f18'))
     if prev_close > 0:
         return (price - prev_close) / prev_close * 100
     return 0.0
@@ -83,6 +86,15 @@ class StockFilter:
         if not bidding_data:
             return []
 
+        # 范围过滤：仅沪深主板 + 创业板，排除ST
+        scoped_data = []
+        for stock in bidding_data:
+            code = str(stock.get('f12', ''))
+            name = str(stock.get('f14', ''))
+            if self.is_in_scope(code) and not self.is_st_stock(name):
+                scoped_data.append(stock)
+        bidding_data = scoped_data
+
         # 构建 9:24 涨幅映射 {code: gain_percent}
         gain_924_map = {}
         if snapshot_924:
@@ -95,9 +107,9 @@ class StockFilter:
         for stock in bidding_data:
             code = str(stock.get('f12', ''))
             name = str(stock.get('f14', ''))
-            price = to_float(stock.get('f2')) / 100
-            prev_close = to_float(stock.get('f18')) / 100
-            amount = to_float(stock.get('f6'))  # 成交额（元）
+            price = to_float(stock.get('f2'))            # 现价（元）
+            prev_close = to_float(stock.get('f18'))      # 昨收（元）
+            amount = to_float(stock.get('f6'))           # 成交额（元）
             gain = calc_gain_percent(stock)
 
             # 条件1：竞价金额 > 阈值
@@ -288,7 +300,7 @@ class StockFilter:
 
             klines = self._sort_klines(raw_klines)
             today = klines[-1]
-            current_price = to_float(stock.get('f2')) / 100
+            current_price = to_float(stock.get('f2'))  # 现价（元，fltt=2 无需除100）
 
             # ===== 方案1：涨停后缩量回踩 =====
             scheme1 = self._check_scheme1(code, klines, today, current_price)

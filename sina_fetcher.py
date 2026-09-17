@@ -21,10 +21,10 @@ class SinaFetcher:
             if not stock_list:
                 return []
 
-            # 批量获取实时行情
+            # 批量获取实时行情（全量，每批800只）
             results = []
             batch_size = 800
-            for i in range(0, min(len(stock_list), 5000), batch_size):
+            for i in range(0, len(stock_list), batch_size):
                 batch = stock_list[i:i+batch_size]
                 codes_str = ','.join(batch)
                 url = f'https://hq.sinajs.cn/list={codes_str}'
@@ -48,21 +48,27 @@ class SinaFetcher:
                             current_price = float(fields[3]) if fields[3] else 0
                             high = float(fields[4]) if fields[4] else 0
                             low = float(fields[5]) if fields[5] else 0
+                            volume = int(float(fields[8])) if fields[8] else 0      # 成交量（股）
+                            amount = float(fields[9]) if fields[9] else 0           # 成交额（元）
                             buy1_volume = int(float(fields[6])) if fields[6] else 0
-                            buy1_price = float(fields[7]) if fields[7] else 0
                             sell1_volume = int(float(fields[18])) if fields[18] else 0
-                            sell1_price = float(fields[19]) if fields[19] else 0
 
-                            # 转换为东方财富格式兼容
+                            # 转换为东方财富 clist(fltt=2) 相同口径：
+                            # f2=现价(元) f3=涨幅(%) f6=成交额(元) f18=昨收(元)
                             code_num = code_full[2:]
+                            gain_pct = ((current_price - prev_close) / prev_close * 100
+                                        if prev_close > 0 else 0)
                             results.append({
                                 'f12': code_num,
                                 'f14': name,
-                                'f2': int(current_price * 100) if current_price > 0 else '-',
-                                'f3': int((current_price - prev_close) / prev_close * 10000) if prev_close > 0 else '-',
-                                'f15': int(high * 100) if high > 0 else '-',
-                                'f20': int(prev_close * 100) if prev_close > 0 else '-',
-                                'f26': int(open_price * 100) if open_price > 0 else '-',
+                                'f2': current_price,
+                                'f3': round(gain_pct, 3),
+                                'f6': amount,
+                                'f15': high,
+                                'f16': low,
+                                'f17': open_price,
+                                'f18': prev_close,
+                                'f5': volume,
                                 'f47': buy1_volume,
                                 'f48': sell1_volume,
                             })
@@ -79,35 +85,39 @@ class SinaFetcher:
             return []
 
     def _get_stock_list(self):
-        """获取沪深A股代码列表"""
-        try:
-            url = 'https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData'
-            params = {
-                'page': 1,
-                'num': 5000,
-                'sort': 'symbol',
-                'asc': 1,
-                'node': 'hs_a',
-                '_s_r_a': 'init'
-            }
-            resp = self.session.get(url, params=params, timeout=self.timeout)
-            data = resp.json()
-            codes = []
-            for item in data:
-                symbol = item.get('symbol', '')
-                if symbol:
-                    codes.append(symbol)
-            return codes
-        except Exception:
-            # 如果获取列表失败，使用常见代码范围
-            codes = []
-            for i in range(600000, 602000):
-                codes.append(f'sh{i}')
-            for i in range(0, 2000):
-                codes.append(f'sz{i:06d}')
-            for i in range(300000, 301000):
-                codes.append(f'sz{i}')
-            return codes[:5000]
+        """获取沪深A股代码列表（分页拉取 sh_a + sz_a 两个节点，含主板与创业板）。
+        注意：hs_a 节点现在混入北交所且首页只返回100只，不可直接使用。
+        """
+        codes = []
+        url = 'https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData'
+        for node in ('sh_a', 'sz_a'):
+            page = 1
+            while page <= 60:
+                params = {
+                    'page': page,
+                    'num': 100,
+                    'sort': 'symbol',
+                    'asc': 1,
+                    'node': node,
+                    '_s_r_a': 'init'
+                }
+                try:
+                    resp = self.session.get(url, params=params, timeout=self.timeout)
+                    data = resp.json()
+                    if not data:
+                        break
+                    for item in data:
+                        symbol = item.get('symbol', '')
+                        if symbol:
+                            codes.append(symbol)
+                    if len(data) < 100:
+                        break
+                    page += 1
+                    time.sleep(0.15)
+                except Exception:
+                    break
+        # 去重（sz_a 与 cyb 概念可能重叠）
+        return list(dict.fromkeys(codes))
 
     def _get_stock_plate_single(self, code):
         """获取个股板块信息"""
@@ -141,22 +151,21 @@ class SinaFetcher:
         return plate_info
 
     def _get_kline_single(self, code, days=7):
-        """获取K线数据"""
+        """获取K线数据（日K）。
+        旧域名 quotes.sina.cn/jsonp_v2 已失效（返回 null），
+        使用 money.finance.sina.com.cn 的 JSON 接口。
+        """
         try:
             sina_code = f'sh{code}' if code.startswith('6') else f'sz{code}'
-            url = f'https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20_{sina_code}/CN_MarketDataService.getKLineData'
+            url = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData'
             params = {
                 'symbol': sina_code,
-                'scale': 1440,
+                'scale': 240,      # 240分钟 = 日K
                 'ma': 'no',
                 'datalen': days + 5
             }
             resp = self.session.get(url, params=params, timeout=self.timeout)
-            text = resp.text
-            # 解析JSONP
-            json_str = text.split('(')[1].rstrip(')')
-            import json
-            data = json.loads(json_str)
+            data = resp.json()
             klines = []
             for item in data:
                 klines.append({
@@ -172,7 +181,7 @@ class SinaFetcher:
                     'change': 0,
                     'turnover': 0
                 })
-            # 计算涨幅
+            # 计算涨幅（新浪该接口不直接返回涨跌幅）
             for i in range(len(klines)):
                 if i > 0 and klines[i-1]['close'] > 0:
                     klines[i]['change_percent'] = round(
@@ -182,7 +191,7 @@ class SinaFetcher:
         except Exception:
             return {'code': code, 'klines': []}
 
-    def get_kline_data_batch(self, codes, days=7):
+    def get_kline_data_batch(self, codes, days=20):
         """批量获取K线数据"""
         kline_info = {}
         with ThreadPoolExecutor(max_workers=10) as executor:
