@@ -5,6 +5,7 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sina_fetcher import SinaFetcher
+from tencent_fetcher import TencentFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ class StockDataFetcher:
         self.session.mount('https://', adapter)
         self.timeout = 8
         self.fallback = SinaFetcher()
+        self.tencent = TencentFetcher()
+        # 保留 use_fallback 兼容字段（旧测试用例依赖），但实际不再使用
         self.use_fallback = False
 
     def _wait_for_breaker(self):
@@ -83,49 +86,47 @@ class StockDataFetcher:
                     time.sleep(1.0 * (attempt + 1) + extra)  # 退避 + 熔断等待
         raise last_exc
 
-    def _try_with_fallback(self, primary_func, fallback_func, func_name):
-        """尝试主数据源，失败时自动降级到备选"""
-        if self.use_fallback:
-            logger.info(f"[数据源切换] {func_name} -> 备选(新浪)，原因: 已标记降级")
-            return fallback_func()
+    def _try_with_fallback(self, sources, func_name, default_value=None):
+        """按优先级顺序尝试多个数据源，第一个成功的非空结果即返回。
 
-        logger.info(f"[数据源切换] {func_name} -> 主(东方财富)，尝试请求...")
-        start_time = time.time()
-        result = []
+        参数：
+            sources: [(name, func), ...]，按优先级降序排列。
+                     例如 [('东方财富', primary_func), ('新浪', sina_func), ('腾讯', tencent_func)]
+            default_value: 所有源都失败时返回的默认值。默认为 []（用于list场景）；
+                          dict场景调用方需显式传 {}。
 
-        try:
-            result = primary_func()
-            elapsed = time.time() - start_time
-            if result is not None and len(result) > 0 if isinstance(result, list) else result:
-                logger.info(f"[数据源切换] {func_name} <- 主(东方财富) 成功，耗时{elapsed:.2f}s，数据量={len(result) if isinstance(result, list) else 'dict'}")
-                return result
-            # 主数据源返回空，尝试备选
-            logger.warning(f"[数据源切换] {func_name} <- 主(东方财富) 返回空数据，耗时{elapsed:.2f}s，降级到备选")
-        except Exception as e:
-            elapsed = time.time() - start_time
-            logger.warning(f"[数据源切换] {func_name} <- 主(东方财富) 异常: {type(e).__name__}: {e}，耗时{elapsed:.2f}s，降级到备选")
+        设计说明：
+            旧版本依赖 `use_fallback` 状态永久切换到备选，导致主源恢复后也不切回。
+            新版本改为每次按顺序尝试，主源恢复后自动切回，仅多1-2秒延迟。
+        """
+        if default_value is None:
+            default_value = []
 
-        logger.info(f"[数据源切换] {func_name} -> 备选(新浪)，尝试请求...")
-        fallback_start = time.time()
+        result = None
+        for name, func in sources:
+            logger.info(f"[数据源切换] {func_name} -> {name}")
+            start_time = time.time()
+            try:
+                result = func()
+                elapsed = time.time() - start_time
+                if result and (len(result) > 0 if isinstance(result, list) else result):
+                    logger.info(f"[数据源切换] {func_name} <- {name} 成功，耗时{elapsed:.2f}s，数据量={len(result) if isinstance(result, list) else 'dict'}")
+                    return result
+                logger.warning(f"[数据源切换] {func_name} <- {name} 返回空数据，耗时{elapsed:.2f}s")
+            except Exception as e:
+                elapsed = time.time() - start_time
+                logger.warning(f"[数据源切换] {func_name} <- {name} 异常: {type(e).__name__}: {e}，耗时{elapsed:.2f}s")
 
-        try:
-            result = fallback_func()
-            fallback_elapsed = time.time() - fallback_start
-            if result:
-                logger.info(f"[数据源切换] {func_name} <- 备选(新浪) 成功，耗时{fallback_elapsed:.2f}s，数据量={len(result) if isinstance(result, list) else 'dict'}，后续优先使用备选")
-                self.use_fallback = True
-                return result
-            logger.warning(f"[数据源切换] {func_name} <- 备选(新浪) 返回空数据")
-        except Exception as e:
-            fallback_elapsed = time.time() - fallback_start
-            logger.error(f"[数据源切换] {func_name} <- 备选(新浪) 异常: {type(e).__name__}: {e}，耗时{fallback_elapsed:.2f}s")
-
-        return [] if isinstance(result, list) else {}
+        logger.error(f"[数据源切换] {func_name} 所有数据源均失败")
+        return default_value
 
     def get_collection_bidding(self):
         return self._try_with_fallback(
-            self._get_collection_bidding_primary,
-            self.fallback.get_collection_bidding,
+            [
+                ('东方财富', self._get_collection_bidding_primary),
+                ('新浪', self.fallback.get_collection_bidding),
+                ('腾讯', self.tencent.get_collection_bidding),
+            ],
             "集合竞价"
         )
 
@@ -183,9 +184,13 @@ class StockDataFetcher:
 
     def get_stock_plates_batch(self, codes):
         return self._try_with_fallback(
-            lambda: self._get_stock_plates_batch_primary(codes),
-            lambda: self.fallback.get_stock_plates_batch(codes),
-            "板块信息"
+            [
+                ('东方财富', lambda: self._get_stock_plates_batch_primary(codes)),
+                ('新浪', lambda: self.fallback.get_stock_plates_batch(codes)),
+                ('腾讯', lambda: self.tencent.get_stock_plates_batch(codes)),
+            ],
+            "板块信息",
+            default_value={}
         )
 
     def _get_stock_plate_single(self, code):
@@ -219,9 +224,13 @@ class StockDataFetcher:
 
     def get_kline_data_batch(self, codes, days=20):
         return self._try_with_fallback(
-            lambda: self._get_kline_data_batch_primary(codes, days),
-            lambda: self.fallback.get_kline_data_batch(codes, days),
-            "K线数据"
+            [
+                ('东方财富', lambda: self._get_kline_data_batch_primary(codes, days)),
+                ('新浪', lambda: self.fallback.get_kline_data_batch(codes, days)),
+                ('腾讯', lambda: self.tencent.get_kline_data_batch(codes, days)),
+            ],
+            "K线数据",
+            default_value={}
         )
 
     def _get_kline_single(self, code, days=20):
