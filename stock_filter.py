@@ -271,11 +271,11 @@ class StockFilter:
         """
         尾盘选股（14:55），包含两个方案：
 
-        方案1 - 涨停后缩量回踩：
+        方案1 - 涨停后回踩EXPMA10缩量，次日放量上涨：
           1. 最近15个交易日有过涨停
           2. 涨停后未跌破涨停日最低价
-          3. 今日收十字星 / 倒T / 小阴线
-          4. 今日成交量 <= 近15日最大成交量的 1/3
+          3. 昨日回踩EXPMA10 + 缩量 + 收十字星/倒T
+          4. 今日较昨日放量上涨 + 收十字星/倒T + 量能 <= 近15日最大量的0.5倍
 
         方案2 - 连阳承接不破均线：
           1. 连续6个交易日及以上收阳
@@ -363,14 +363,41 @@ class StockFilter:
         results.sort(key=lambda x: (x['scheme'], x['current_price']), reverse=True)
         return results
 
+    @staticmethod
+    def _calc_expma(klines, period=10):
+        """计算EXPMA（指数移动平均），返回与klines等长的列表，不足period的位置为None"""
+        n = len(klines)
+        if n < period:
+            return [None] * n
+        multiplier = 2.0 / (period + 1)
+        expma = [None] * (period - 1)
+        # 用前 period 天收盘价均值初始化
+        init_sum = sum(klines[i].get('close', 0) for i in range(period))
+        expma.append(init_sum / period)
+        # 后续用 EMA 递推
+        for i in range(period, n):
+            prev = expma[-1]
+            close = klines[i].get('close', 0)
+            expma.append(close * multiplier + prev * (1 - multiplier))
+        return expma
+
     def _check_scheme1(self, code, klines, today, current_price):
-        """方案1：涨停后缩量回踩"""
+        """方案1：涨停后回踩EXPMA10缩量，次日放量上涨收十字星/倒T
+        1. 近15日有涨停（不含今日）
+        2. 涨停后不破涨停日最低价
+        3. 昨日回踩EXPMA10 + 缩量 + 收十字星/倒T
+        4. 今日较昨日放量上涨 + 收十字星/倒T + 量能不超过近15日最大量的0.5倍
+        """
+        # 至少需要3天K线（前天、昨天、今天）
+        if len(klines) < 3:
+            return None
+
         limit_up_pct = self.get_limit_up_pct(code)
         last15 = klines[-15:] if len(klines) >= 15 else klines
 
-        # 1. 最近15日有过涨停
+        # 1. 近15日有涨停（不含今日）
         limit_up_idx = None
-        for i in range(len(last15) - 1):  # 不含今日
+        for i in range(len(last15) - 1):
             if last15[i].get('change_percent', 0) >= limit_up_pct:
                 limit_up_idx = i
         if limit_up_idx is None:
@@ -385,38 +412,54 @@ class StockFilter:
             if k.get('low', 0) < limit_up_low:
                 return None
 
-        # 3. 今日收十字星 / 倒T / 小阴线
-        today_k = today
-        is_doji = self.is_doji(today_k)
-        is_inv_t = self.is_inverted_t(today_k)
-        # 小阴线需要昨收，用昨日收盘价
-        if len(klines) >= 2:
-            today_k = dict(today)
-            today_k['prev_close'] = klines[-2].get('close', 0)
-        is_small_bear = self.is_small_bearish(today_k)
-
-        pattern = None
-        if is_doji:
-            pattern = '十字星'
-        elif is_inv_t:
-            pattern = '倒T'
-        elif is_small_bear:
-            pattern = '小阴线'
-        if pattern is None:
+        # 3. 计算EXPMA10
+        expma10 = self._calc_expma(klines, 10)
+        expma_yesterday = expma10[-2] if len(expma10) >= 2 else None
+        if expma_yesterday is None:
             return None
 
-        # 4. 今日成交量 <= 近15日最大成交量的 1/3
+        yesterday = klines[-2]
+        day_before = klines[-3]
+
+        # 4. 昨日回踩EXPMA10（最低价触及或跌破EXPMA10）
+        if yesterday.get('low', 0) > expma_yesterday:
+            return None
+
+        # 5. 昨日缩量（成交量 < 前日）
+        yest_vol = yesterday.get('volume', 0)
+        day_before_vol = day_before.get('volume', 0)
+        if day_before_vol > 0 and yest_vol >= day_before_vol:
+            return None
+
+        # 6. 昨日收十字星或倒T
+        yest_doji = self.is_doji(yesterday)
+        yest_inv_t = self.is_inverted_t(yesterday)
+        if not (yest_doji or yest_inv_t):
+            return None
+
+        # 7. 今日较昨日放量上涨
+        today_vol = today.get('volume', 0)
+        if yest_vol > 0 and today_vol <= yest_vol:
+            return None
+        if today.get('close', 0) <= yesterday.get('close', 0):
+            return None
+
+        # 8. 今日收十字星或倒T
+        today_doji = self.is_doji(today)
+        today_inv_t = self.is_inverted_t(today)
+        if not (today_doji or today_inv_t):
+            return None
+        today_pattern = '十字星' if today_doji else '倒T'
+
+        # 9. 今日量能不超过近15日最大量的0.5倍
         volumes = [k.get('volume', 0) for k in last15]
         max_vol = max(volumes) if volumes else 0
-        today_vol = today.get('volume', 0)
-        if max_vol > 0 and today_vol > max_vol / 3:
+        if max_vol > 0 and today_vol > max_vol * 0.5:
             return None
 
         return {
             'open': today.get('open', 0),
-            'high': today.get('high', 0),
-            'low': today.get('low', 0),
-            'pattern': pattern,
+            'pattern': today_pattern,
             'volume': today_vol,
             'max_volume_15d': max_vol,
         }
