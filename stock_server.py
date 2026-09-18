@@ -275,18 +275,23 @@ class StockServer:
 if __name__ == "__main__":
     import sys
 
-    test_mode = False
-    if len(sys.argv) > 1 and sys.argv[1] == '--test':
-        test_mode = True
-        logger.info("=== 测试模式启动 ===")
+    args = sys.argv[1:]
+    test_mode = '--test' in args
+
+    if test_mode:
+        logger.info("=== 测试模式启动（完成后自动退出，中途按 Ctrl+C 可中断）===")
 
     server = StockServer()
 
     if test_mode:
-        logger.info("手动测试集合竞价选股（无9:24快照，仅校验金额与涨幅条件）...")
-        server.run_morning_selection()
-        logger.info("手动测试尾盘选股...")
-        server.run_late_session_selection()
-        logger.info("测试完成")
+        try:
+            logger.info("手动测试集合竞价选股（无9:24快照，仅校验金额与涨幅条件）...")
+            server.run_morning_selection()
+            logger.info("手动测试尾盘选股...")
+            server.run_late_session_selection()
+            logger.info("测试完成")
+        except KeyboardInterrupt:
+            logger.info("用户中断，退出测试")
+        sys.exit(0)
     else:
         server.run()
