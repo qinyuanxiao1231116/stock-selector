@@ -82,10 +82,10 @@ def test_late_session_push():
 
     # 模拟尾盘选股结果
     late_session_stocks = [
-        {'code': '600036', 'name': '招商银行', 'current_price': '35.20', 'open': '35.18',
-         'high': '35.50', 'low': '34.90', 'pattern': '十字星', 'scheme': '方案1', 'industry': '银行'},
-        {'code': '601318', 'name': '中国平安', 'current_price': '48.60', 'open': '48.55',
-         'high': '49.10', 'low': '48.50', 'pattern': '7连阳', 'scheme': '方案2', 'industry': '保险'},
+        {'code': '600036', 'name': '招商银行', 'current_price': '35.20', 'gain': '1.25',
+         'open': '35.18', 'pattern': '十字星', 'scheme': '方案1', 'industry': '银行'},
+        {'code': '601318', 'name': '中国平安', 'current_price': '48.60', 'gain': '0.82',
+         'open': '48.55', 'pattern': '7连阳', 'scheme': '方案2', 'industry': '保险'},
     ]
 
     content = server.format_late_notification(late_session_stocks)

@@ -117,7 +117,7 @@ class StockServer:
                     f"**选股条件**:\n"
                     f"- 方案1：近15日涨停 + 涨停后不破最低价 + 今日十字星/倒T/小阴线 + 缩量\n"
                     f"- 方案2：连续6日及以上收阳 + 回调有承接 + 不破5日均线\n"
-                    f"- 范围：沪深主板+创业板，不含ST"
+                    f"- 范围：沪深主板，不含创业板/ST"
                 )
                 logger.info("暂无符合条件的股票")
                 self.notifier.send_message(title, content)
@@ -154,25 +154,25 @@ class StockServer:
         content += "**选股条件**:\n"
         content += "- 方案1：近15日涨停 + 涨停后不破最低价 + 今日十字星/倒T/小阴线 + 缩量\n"
         content += "- 方案2：连续6日及以上收阳 + 回调有承接 + 不破5日均线\n"
-        content += "- 范围：沪深主板+创业板，不含ST\n\n"
+        content += "- 范围：沪深主板，不含创业板/ST\n\n"
 
         scheme1 = [s for s in late_session if s.get('scheme') == '方案1']
         scheme2 = [s for s in late_session if s.get('scheme') == '方案2']
 
         if scheme1:
             content += "### 方案1：涨停后缩量回踩\n\n"
-            content += "| 代码 | 名称 | 当前价 | 开盘 | 最高 | 最低 | 形态 | 行业 |\n"
-            content += "|------|------|--------|------|------|------|------|------|\n"
+            content += "| 代码 | 名称 | 当前价 | 涨幅(%) | 形态 | 行业 |\n"
+            content += "|------|------|--------|---------|------|------|\n"
             for stock in scheme1[:15]:
-                content += f"| {stock['code']} | {stock['name']} | {stock['current_price']} | {stock['open']} | {stock['high']} | {stock['low']} | {stock['pattern']} | {stock['industry']} |\n"
+                content += f"| {stock['code']} | {stock['name']} | {stock['current_price']} | {stock['gain']} | {stock['pattern']} | {stock['industry']} |\n"
             content += "\n"
 
         if scheme2:
             content += "### 方案2：连阳承接不破均线\n\n"
-            content += "| 代码 | 名称 | 当前价 | 开盘 | 最高 | 最低 | 连阳天数 | 行业 |\n"
-            content += "|------|------|--------|------|------|------|----------|------|\n"
+            content += "| 代码 | 名称 | 当前价 | 涨幅(%) | 连阳天数 | 行业 |\n"
+            content += "|------|------|--------|---------|----------|------|\n"
             for stock in scheme2[:15]:
-                content += f"| {stock['code']} | {stock['name']} | {stock['current_price']} | {stock['open']} | {stock['high']} | {stock['low']} | {stock['pattern']} | {stock['industry']} |\n"
+                content += f"| {stock['code']} | {stock['name']} | {stock['current_price']} | {stock['gain']} | {stock['pattern']} | {stock['industry']} |\n"
             content += "\n"
 
         content += f"**合计**: {len(late_session)}只股票（方案1:{len(scheme1)}只, 方案2:{len(scheme2)}只）"

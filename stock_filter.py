@@ -24,13 +24,16 @@ def calc_gain_percent(stock):
     """根据行情快照计算涨幅（%）。
     东方财富 clist 接口 fltt=2 下 f3 已直接是百分比（如 4.89 表示 +4.89%），
     f2 现价、f18 昨收均已直接是元，无需再除以100。
+
+    注意：9:24 集合竞价阶段 f3 可能为 0、f2(现价) 也可能为 0，
+    此时不能用 (f2-f18)/f18 计算（会得到 -100%），应返回 0。
     """
     f3 = to_float(stock.get('f3'))
     if f3 != 0:
         return f3
     price = to_float(stock.get('f2'))
     prev_close = to_float(stock.get('f18'))
-    if prev_close > 0:
+    if price > 0 and prev_close > 0:
         return (price - prev_close) / prev_close * 100
     return 0.0
 
@@ -170,12 +173,12 @@ class StockFilter:
 
     @staticmethod
     def is_in_scope(code):
-        """判断是否为沪深主板或创业板（不含科创板、北交所）"""
+        """判断是否为沪深主板（不含创业板、科创板、北交所）"""
         if not code or len(code) < 3:
             return False
         prefix3 = code[:3]
-        # 沪市主板: 600,601,603,605  深市主板: 000,001,002,003  创业板: 300,301
-        return prefix3 in ('600', '601', '603', '605', '000', '001', '002', '003', '300', '301')
+        # 沪市主板: 600,601,603,605  深市主板: 000,001,002,003
+        return prefix3 in ('600', '601', '603', '605', '000', '001', '002', '003')
 
     @staticmethod
     def is_st_stock(name):
@@ -209,7 +212,9 @@ class StockFilter:
 
     @staticmethod
     def is_inverted_t(kline):
-        """倒T：上影线长，实体小，下影线短"""
+        """倒T（倒T字线）：收盘≈最低（下影线极短，底部平整），上影线长，实体小。
+        即 ⊥ 形状：底部一横，上面一竖，下影线不应出头。
+        """
         open_p = kline.get('open', 0)
         close_p = kline.get('close', 0)
         high_p = kline.get('high', 0)
@@ -221,9 +226,10 @@ class StockFilter:
         lower_shadow = min(open_p, close_p) - low_p
         body_size = abs(close_p - open_p)
         range_size = high_p - low_p
+        # 上影线 >= 60% 振幅；实体 <= 30% 振幅；下影线 <= 10% 振幅（底部几乎平整）
         return (safe_div(upper_shadow, range_size) >= 0.6
                 and safe_div(body_size, range_size) <= 0.3
-                and lower_shadow <= body_size)
+                and safe_div(lower_shadow, range_size) <= 0.1)
 
     @staticmethod
     def is_small_bearish(kline):
@@ -269,7 +275,7 @@ class StockFilter:
           4. 切分有承接（收盘价在当日振幅上半区）
           5. 不破5日均线
 
-        范围：仅沪深主板 + 创业板，排除ST。
+        范围：仅沪深主板，排除创业板/ST。
         """
         bidding_data = self.fetcher.get_collection_bidding()
         if not bidding_data:
@@ -301,6 +307,7 @@ class StockFilter:
             klines = self._sort_klines(raw_klines)
             today = klines[-1]
             current_price = to_float(stock.get('f2'))  # 现价（元，fltt=2 无需除100）
+            today_gain = calc_gain_percent(stock)       # 当日涨幅（%）
 
             # ===== 方案1：涨停后缩量回踩 =====
             scheme1 = self._check_scheme1(code, klines, today, current_price)
@@ -308,6 +315,7 @@ class StockFilter:
                 scheme1['code'] = code
                 scheme1['name'] = name
                 scheme1['current_price'] = current_price
+                scheme1['gain'] = today_gain
                 scheme1['scheme'] = '方案1'
                 candidates.append(scheme1)
                 continue  # 满足方案1则不再检查方案2，避免重复
@@ -318,6 +326,7 @@ class StockFilter:
                 scheme2['code'] = code
                 scheme2['name'] = name
                 scheme2['current_price'] = current_price
+                scheme2['gain'] = today_gain
                 scheme2['scheme'] = '方案2'
                 candidates.append(scheme2)
 
@@ -334,9 +343,8 @@ class StockFilter:
                 'code': c['code'],
                 'name': c['name'],
                 'current_price': round(c['current_price'], 2),
+                'gain': round(c.get('gain', 0), 2),
                 'open': round(c.get('open', 0), 2),
-                'high': round(c.get('high', 0), 2),
-                'low': round(c.get('low', 0), 2),
                 'pattern': c.get('pattern', ''),
                 'scheme': c['scheme'],
                 'industry': plate.get('industry', ''),
