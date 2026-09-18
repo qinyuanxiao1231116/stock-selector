@@ -6,6 +6,11 @@ from stock_filter import StockFilter
 from wechat_notifier import WechatNotifier
 import config as _cfg
 LATE_LOOKBACK_DAYS = getattr(_cfg, 'LATE_LOOKBACK_DAYS', 20)
+AUCTION_AMOUNT_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_THRESHOLD', 20000000)
+AUCTION_GAIN_MIN = getattr(_cfg, 'AUCTION_GAIN_MIN', 3.0)
+AUCTION_GAIN_MAX = getattr(_cfg, 'AUCTION_GAIN_MAX', 8.0)
+AUCTION_GAIN_DIFF_THRESHOLD = getattr(_cfg, 'AUCTION_GAIN_DIFF_THRESHOLD', 2.0)
+AUCTION_FLOAT_MV_MAX = getattr(_cfg, 'AUCTION_FLOAT_MV_MAX', 20000000000)
 
 class StockSelectorCLI:
     def __init__(self, send_key):
@@ -27,7 +32,12 @@ class StockSelectorCLI:
                 print(f"尾盘选股: 共{len(late_session_stocks)}只（方案1:{s1}只, 方案2:{s2}只）")
             else:
                 auction_stocks = self.filter.filter_auction_momentum(
-                    snapshot_924=self.snapshot_924
+                    snapshot_924=self.snapshot_924,
+                    amount_threshold=AUCTION_AMOUNT_THRESHOLD,
+                    gain_min=AUCTION_GAIN_MIN,
+                    gain_max=AUCTION_GAIN_MAX,
+                    gain_diff_threshold=AUCTION_GAIN_DIFF_THRESHOLD,
+                    float_mv_max=AUCTION_FLOAT_MV_MAX
                 )
                 print(f"集合竞价选股: {len(auction_stocks)}只")
 

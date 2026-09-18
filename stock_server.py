@@ -13,10 +13,11 @@ WXPUSHER_UIDS = getattr(_cfg, 'WXPUSHER_UIDS', [])
 LOG_FILE = getattr(_cfg, 'LOG_FILE', 'stock_selector.log')
 
 # 早盘集合竞价条件
-AUCTION_AMOUNT_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_THRESHOLD', 10000000)  # 1000万
+AUCTION_AMOUNT_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_THRESHOLD', 20000000)  # 2000万
 AUCTION_GAIN_MIN = getattr(_cfg, 'AUCTION_GAIN_MIN', 3.0)
 AUCTION_GAIN_MAX = getattr(_cfg, 'AUCTION_GAIN_MAX', 8.0)
 AUCTION_GAIN_DIFF_THRESHOLD = getattr(_cfg, 'AUCTION_GAIN_DIFF_THRESHOLD', 2.0)
+AUCTION_FLOAT_MV_MAX = getattr(_cfg, 'AUCTION_FLOAT_MV_MAX', 20000000000)  # 200亿
 
 # 尾盘选股条件
 LATE_LOOKBACK_DAYS = getattr(_cfg, 'LATE_LOOKBACK_DAYS', 20)
@@ -70,7 +71,8 @@ class StockServer:
                 amount_threshold=AUCTION_AMOUNT_THRESHOLD,
                 gain_min=AUCTION_GAIN_MIN,
                 gain_max=AUCTION_GAIN_MAX,
-                gain_diff_threshold=AUCTION_GAIN_DIFF_THRESHOLD
+                gain_diff_threshold=AUCTION_GAIN_DIFF_THRESHOLD,
+                float_mv_max=AUCTION_FLOAT_MV_MAX
             )
 
             logger.info(f"集合竞价选股结果: {len(auction_stocks)}只")
@@ -85,9 +87,10 @@ class StockServer:
                     f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                     f"今日集合竞价暂无符合条件的股票。\n\n"
                     f"**选股条件**:\n"
-                    f"- 竞价金额 > {AUCTION_AMOUNT_THRESHOLD / 10000:.0f}万\n"
+                    f"- 竞价金额 >= {AUCTION_AMOUNT_THRESHOLD / 10000:.0f}万\n"
                     f"- 竞价涨幅 {AUCTION_GAIN_MIN}% ~ {AUCTION_GAIN_MAX}%\n"
-                    f"- 9:25较9:24拉升 >= {AUCTION_GAIN_DIFF_THRESHOLD}%"
+                    f"- 9:25较9:24拉升 >= {AUCTION_GAIN_DIFF_THRESHOLD}%\n"
+                    f"- 流通市值 <= {AUCTION_FLOAT_MV_MAX / 100000000:.0f}亿"
                 )
                 logger.info("暂无符合条件的股票")
                 self.notifier.send_message(title, content)
@@ -130,19 +133,21 @@ class StockServer:
         content = "## A股集合竞价选股结果\n\n"
         content += f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         content += "**选股条件**:\n"
-        content += f"- 竞价金额 > {AUCTION_AMOUNT_THRESHOLD / 10000:.0f}万\n"
+        content += f"- 竞价金额 >= {AUCTION_AMOUNT_THRESHOLD / 10000:.0f}万\n"
         content += f"- 竞价涨幅 {AUCTION_GAIN_MIN}% ~ {AUCTION_GAIN_MAX}%\n"
-        content += f"- 9:25较9:24拉升 >= {AUCTION_GAIN_DIFF_THRESHOLD}%\n\n"
+        content += f"- 9:25较9:24拉升 >= {AUCTION_GAIN_DIFF_THRESHOLD}%\n"
+        content += f"- 流通市值 <= {AUCTION_FLOAT_MV_MAX / 100000000:.0f}亿\n\n"
 
-        content += "| 代码 | 名称 | 竞价价 | 昨收 | 涨幅(%) | 9:24涨幅(%) | 拉升(%) | 竞价金额(万) | 行业 |\n"
-        content += "|------|------|--------|------|---------|-------------|---------|--------------|------|\n"
+        content += "| 代码 | 名称 | 竞价价 | 涨幅(%) | 9:24涨幅(%) | 拉升(%) | 竞价金额(万) | 流通市值(亿) | 行业 |\n"
+        content += "|------|------|--------|---------|-------------|---------|--------------|--------------|------|\n"
         for stock in auction_stocks[:20]:
             gain_924 = stock.get('gain_924')
             gain_diff = stock.get('gain_diff')
+            float_mv_yi = round(stock.get('float_mv', 0) / 100000000, 2) if stock.get('float_mv') else '-'
             content += (
-                f"| {stock['code']} | {stock['name']} | {stock['price']} | {stock['prev_close']} "
+                f"| {stock['code']} | {stock['name']} | {stock['price']} "
                 f"| {stock['gain']} | {gain_924 if gain_924 is not None else '-'} "
-                f"| {gain_diff if gain_diff is not None else '-'} | {stock['amount']} | {stock['industry']} |\n"
+                f"| {gain_diff if gain_diff is not None else '-'} | {stock['amount']} | {float_mv_yi} | {stock['industry']} |\n"
             )
 
         content += f"\n**合计**: {len(auction_stocks)}只股票"

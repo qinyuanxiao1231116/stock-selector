@@ -73,14 +73,16 @@ class StockFilter:
             return 'after_market'
 
     def filter_auction_momentum(self, snapshot_924=None,
-                                amount_threshold=10000000,
+                                amount_threshold=20000000,
                                 gain_min=3.0, gain_max=8.0,
-                                gain_diff_threshold=2.0):
+                                gain_diff_threshold=2.0,
+                                float_mv_max=20000000000):
         """
         早盘集合竞价选股（尾盘拉升型）：
-        1. 竞价金额 > amount_threshold（元，默认1000万）
+        1. 竞价金额 >= amount_threshold（元，默认2000万）
         2. 竞价涨幅 >= gain_min 且 <= gain_max（默认 3% ~ 8%）
         3. 9:25 涨幅 - 9:24 涨幅 >= gain_diff_threshold（默认 2%，即最后一分钟至少拉升2%）
+        4. 流通市值 <= float_mv_max（元，默认200亿）
 
         参数:
             snapshot_924: 9:24 分时的行情快照列表（东方财富 clist 格式），用于对比最后一分钟拉升
@@ -89,7 +91,7 @@ class StockFilter:
         if not bidding_data:
             return []
 
-        # 范围过滤：仅沪深主板 + 创业板，排除ST
+        # 范围过滤：仅沪深主板，排除ST
         scoped_data = []
         for stock in bidding_data:
             code = str(stock.get('f12', ''))
@@ -114,16 +116,21 @@ class StockFilter:
             prev_close = to_float(stock.get('f18'))      # 昨收（元）
             amount = to_float(stock.get('f6'))           # 成交额（元）
             gain = calc_gain_percent(stock)
+            float_mv = to_float(stock.get('f21'))        # 流通市值（元）
 
-            # 条件1：竞价金额 > 阈值
-            if amount <= amount_threshold:
+            # 条件1：竞价金额 >= 阈值
+            if amount < amount_threshold:
                 continue
 
             # 条件2：竞价涨幅在区间内
             if gain < gain_min or gain > gain_max:
                 continue
 
-            # 条件3：9:25 较 9:24 拉升 >= gain_diff_threshold
+            # 条件3：流通市值 <= 上限
+            if float_mv > float_mv_max:
+                continue
+
+            # 条件4：9:25 较 9:24 拉升 >= gain_diff_threshold
             if snapshot_924 is not None:
                 gain_924 = gain_924_map.get(code)
                 if gain_924 is None:
@@ -144,6 +151,7 @@ class StockFilter:
                 'gain': gain,
                 'gain_924': gain_924,
                 'gain_diff': gain_diff,
+                'float_mv': float_mv,
             })
 
         if not candidates:
@@ -164,6 +172,7 @@ class StockFilter:
                 'gain': round(c['gain'], 2),
                 'gain_924': round(c['gain_924'], 2) if c['gain_924'] is not None else None,
                 'gain_diff': round(c['gain_diff'], 2) if c['gain_diff'] is not None else None,
+                'float_mv': round(c.get('float_mv', 0), 2),  # 流通市值（元）
                 'industry': plate.get('industry', ''),
                 'concept': plate.get('concept', '')
             })

@@ -51,14 +51,17 @@ def test_morning_selection_push():
 
     server = StockServer()
 
-    # 模拟集合竞价选股结果（竞价金额>1000万, 涨幅3%-8%, 9:25较9:24拉升>=2%）
+    # 模拟集合竞价选股结果（竞价金额>=2000万, 涨幅3%-8%, 9:25较9:24拉升>=2%, 流通市值<=200亿）
     auction_stocks = [
-        {'code': '600519', 'name': '贵州茅台', 'price': '1888.00', 'prev_close': '1800.00',
-         'gain': '4.89', 'gain_924': '2.50', 'gain_diff': '2.39', 'amount': '25000.00', 'industry': '白酒'},
-        {'code': '300750', 'name': '宁德时代', 'price': '218.50', 'prev_close': '210.00',
-         'gain': '4.05', 'gain_924': '1.80', 'gain_diff': '2.25', 'amount': '18000.00', 'industry': '锂电池'},
-        {'code': '002594', 'name': '比亚迪', 'price': '268.00', 'prev_close': '258.00',
-         'gain': '3.88', 'gain_924': '1.50', 'gain_diff': '2.38', 'amount': '32000.00', 'industry': '新能源车'},
+        {'code': '600519', 'name': '贵州茅台', 'price': '1888.00',
+         'gain': '4.89', 'gain_924': '2.50', 'gain_diff': '2.39', 'amount': '25000.00',
+         'float_mv': 1583828000000, 'industry': '白酒'},
+        {'code': '002594', 'name': '比亚迪', 'price': '268.00',
+         'gain': '4.05', 'gain_924': '1.80', 'gain_diff': '2.25', 'amount': '32000.00',
+         'float_mv': 780000000000, 'industry': '新能源车'},
+        {'code': '601318', 'name': '中国平安', 'price': '48.60',
+         'gain': '3.88', 'gain_924': '1.50', 'gain_diff': '2.38', 'amount': '28000.00',
+         'float_mv': 890000000000, 'industry': '保险'},
     ]
 
     content = server.format_auction_notification(auction_stocks)
