@@ -85,6 +85,8 @@ class TencentFetcher:
             gain_pct = float(fields[32]) if fields[32] else 0  # %
             high = float(fields[33]) if fields[33] else 0
             low = float(fields[34]) if fields[34] else 0
+            # fields[44]: 流通市值（亿元），需 ×1e8 转为元
+            float_mv = float(fields[44]) * 1e8 if len(fields) > 44 and fields[44] else 0
 
             # 成交额：优先解析字段[35]的"价格/量/额"字符串（额为元）
             amount = 0.0
@@ -96,7 +98,7 @@ class TencentFetcher:
                     except ValueError:
                         amount = 0.0
             if amount == 0.0:
-                # 退路：成交量×均价×100
+                # 退路：成交量(手)×100×均价 = 股×元 = 元
                 avg = (high + low) / 2 if high > 0 and low > 0 else current_price
                 amount = volume_hand * 100 * avg
 
@@ -111,6 +113,7 @@ class TencentFetcher:
                 'f17': open_price,
                 'f18': prev_close,
                 'f5': volume,
+                'f21': float_mv,   # 流通市值（元）
                 # 兼容字段（东财用得到但腾讯不一定有）
                 'f47': 0,   # buy1_volume
                 'f48': 0,   # sell1_volume
