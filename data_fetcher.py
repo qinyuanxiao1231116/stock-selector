@@ -180,6 +180,9 @@ class StockDataFetcher:
             time.sleep(0.1)  # 轻微限速，避免被接口断连
 
         logger.info(f"[东方财富] 实时行情分页拉取完成: {len(all_rows)}只 (total={total})")
+        # 覆盖率过低视为失败，触发降级（分页中途被限流会静默截断）
+        if total and len(all_rows) < total * 0.5:
+            raise RuntimeError(f"行情主源覆盖率过低: {len(all_rows)}/{total}")
         return all_rows
 
     def get_stock_plates_batch(self, codes):
@@ -224,6 +227,10 @@ class StockDataFetcher:
             for future in as_completed(future_to_code):
                 result = future.result()
                 plate_info[result['code']] = result
+        # 行业获取成功率过低视为失败，触发降级（单股接口异常时静默返回空行业）
+        valid = sum(1 for v in plate_info.values() if v.get('industry'))
+        if codes and valid / len(codes) < 0.5:
+            raise RuntimeError(f"板块主源成功率过低: {valid}/{len(codes)}")
         return plate_info
 
     def get_kline_data_batch(self, codes, days=20):
@@ -286,4 +293,8 @@ class StockDataFetcher:
             for future in as_completed(future_to_code):
                 result = future.result()
                 kline_info[result['code']] = result['klines']
+        # 成功率过低视为失败，触发降级（主源被限流时逐股静默返回空K线）
+        valid = sum(1 for v in kline_info.values() if v)
+        if codes and valid / len(codes) < 0.5:
+            raise RuntimeError(f"K线主源成功率过低: {valid}/{len(codes)}")
         return kline_info
