@@ -148,7 +148,7 @@ class StockDataFetcher:
             'invt': '2',
             'fid': 'f3',
             'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
-            'fields': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f26,f27,f28,f30,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40,f41,f42,f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65'
+            'fields': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f26,f27,f28,f30,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40,f41,f42,f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65,f100'
         }
 
         page_size = 100
@@ -194,20 +194,24 @@ class StockDataFetcher:
         )
 
     def _get_stock_plate_single(self, code):
+        """获取个股行业板块。
+        注意：行业名在 f127（如"白酒Ⅱ"），地区板块在 f128。
+        f102 实测不返回，f103/f104/f105 是市值类数字，均不可用。
+        """
         url = f'http://push2.eastmoney.com/api/qt/stock/get'
         params = {
             'secid': _secid(code),
-            'fields': 'f102,f103,f104,f105'
+            'fields': 'f127,f128'
         }
         try:
             data = self._get_json(url, params, retries=2)
             if data.get('data'):
                 return {
                     'code': code,
-                    'industry': data['data'].get('f102', ''),
-                    'concept': data['data'].get('f103', ''),
-                    'region': data['data'].get('f104', ''),
-                    'market': data['data'].get('f105', '')
+                    'industry': data['data'].get('f127', '') or '',
+                    'concept': '',
+                    'region': data['data'].get('f128', '') or '',
+                    'market': ''
                 }
             return {'code': code, 'industry': '', 'concept': '', 'region': '', 'market': ''}
         except Exception:

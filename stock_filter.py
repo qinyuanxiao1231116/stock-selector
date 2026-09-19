@@ -152,6 +152,7 @@ class StockFilter:
                 'gain_924': gain_924,
                 'gain_diff': gain_diff,
                 'float_mv': float_mv,
+                'industry_raw': str(stock.get('f100', '') or ''),  # 行情自带行业（东财 f100）
             })
 
         if not candidates:
@@ -173,7 +174,7 @@ class StockFilter:
                 'gain_924': round(c['gain_924'], 2) if c['gain_924'] is not None else None,
                 'gain_diff': round(c['gain_diff'], 2) if c['gain_diff'] is not None else None,
                 'float_mv': round(c.get('float_mv', 0), 2),  # 流通市值（元）
-                'industry': plate.get('industry', ''),
+                'industry': c.get('industry_raw') or plate.get('industry', ''),
                 'concept': plate.get('concept', '')
             })
 
@@ -326,6 +327,7 @@ class StockFilter:
                 scheme1['name'] = name
                 scheme1['current_price'] = current_price
                 scheme1['gain'] = today_gain
+                scheme1['industry_raw'] = str(stock.get('f100', '') or '')  # 行情自带行业
                 scheme1['scheme'] = '方案1'
                 candidates.append(scheme1)
                 continue  # 满足方案1则不再检查方案2，避免重复
@@ -337,6 +339,7 @@ class StockFilter:
                 scheme2['name'] = name
                 scheme2['current_price'] = current_price
                 scheme2['gain'] = today_gain
+                scheme2['industry_raw'] = str(stock.get('f100', '') or '')  # 行情自带行业
                 scheme2['scheme'] = '方案2'
                 candidates.append(scheme2)
 
@@ -357,7 +360,7 @@ class StockFilter:
                 'open': round(c.get('open', 0), 2),
                 'pattern': c.get('pattern', ''),
                 'scheme': c['scheme'],
-                'industry': plate.get('industry', ''),
+                'industry': c.get('industry_raw') or plate.get('industry', ''),
                 'concept': plate.get('concept', '')
             })
 
