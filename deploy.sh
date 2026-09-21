@@ -46,7 +46,26 @@ if [ ! -f "$WORK_DIR/config.py" ]; then
         echo "  SendKey 已配置"
     fi
 else
-    echo "  config.py 已存在，跳过（如需更新请手动编辑）"
+    echo "  config.py 已存在，同步选股策略阈值（SEND_KEYS / WXPUSHER 等密钥保持不变）..."
+    # config.py 在 .gitignore 中不会随 git pull 更新，这里以 config.py.example 为准，
+    # 仅强制同步非密钥的策略阈值；密钥项（SEND_KEYS、WXPUSHER_*）一律保留用户现有值。
+    for key in AUCTION_AMOUNT_THRESHOLD AUCTION_GAIN_MIN AUCTION_GAIN_MAX \
+               AUCTION_GAIN_DIFF_THRESHOLD AUCTION_FLOAT_MV_MAX \
+               LATE_SCHEME1_LOOKBACK_DAYS LATE_SCHEME1_VOLUME_RATIO \
+               LATE_SCHEME2_MIN_BULLISH_DAYS LATE_SCHEME2_MA_PERIOD \
+               LATE_LOOKBACK_DAYS LOG_FILE; do
+        example_line=$(grep -E "^${key}[[:space:]]*=" "$WORK_DIR/config.py.example" | head -1)
+        [ -z "$example_line" ] && continue
+        new_value=$(echo "$example_line" | sed -E "s/^${key}[[:space:]]*=[[:space:]]*//")
+        if grep -qE "^${key}[[:space:]]*=" "$WORK_DIR/config.py"; then
+            # 键已存在：更新为 example 中的最新值（用 | 作分隔符，策略值不含 |）
+            sed -i -E "s|^${key}[[:space:]]*=.*|${key} = ${new_value}|" "$WORK_DIR/config.py"
+        else
+            # 键不存在：追加 example 整行
+            echo "$example_line" >> "$WORK_DIR/config.py"
+        fi
+    done
+    echo "  策略阈值已同步（密钥项未改动），请确认 SEND_KEYS 仍正确"
 fi
 
 echo "5. 设置脚本权限..."
