@@ -25,16 +25,25 @@ def calc_gain_percent(stock):
     东方财富 clist 接口 fltt=2 下 f3 已直接是百分比（如 4.89 表示 +4.89%），
     f2 现价、f18 昨收均已直接是元，无需再除以100。
 
-    注意：9:24 集合竞价阶段 f3 可能为 0、f2(现价) 也可能为 0，
-    此时不能用 (f2-f18)/f18 计算（会得到 -100%），应返回 0。
+    注意（集合竞价哨兵值）：
+    9:15-9:25 集合竞价阶段，对尚无有效竞价撮合的股票，东方财富返回的不是 0，
+    而是哨兵值 f3=-100（部分情况下 f2 也为 0）。此时：
+      - 绝不能直接用 f3（会得到 -100%，进而让"拉升"虚高到 100+）
+      - 必须校验 f3 是否在 A 股合理涨跌幅区间内
+      - f3 无效时回退用 f2/f18 计算；若 f2 也为 0（无竞价价），返回 0
     """
     f3 = to_float(stock.get('f3'))
-    if f3 != 0:
+    # A股含科创板快照，涨跌幅上限 ±20%，留余量取 ±21%；超出即判定为哨兵/无效值
+    if -21.0 <= f3 <= 21.0 and f3 != 0:
         return f3
+
     price = to_float(stock.get('f2'))
     prev_close = to_float(stock.get('f18'))
     if price > 0 and prev_close > 0:
-        return (price - prev_close) / prev_close * 100
+        gain = (price - prev_close) / prev_close * 100
+        # 用 f2/f18 算出的结果同样做合理性校验，避免脏数据
+        if -21.0 <= gain <= 21.0:
+            return gain
     return 0.0
 
 class StockFilter:
