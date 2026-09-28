@@ -53,10 +53,25 @@ class StockServer:
         self.notifier.send_message(title, content)
 
     def capture_924_snapshot(self):
-        """采集 9:24 分时的行情快照，用于与 9:25 最终竞价做涨幅对比"""
+        """采集 9:24 分时的行情快照，用于与 9:25 最终竞价做涨幅对比。
+
+        策略：
+        1. 强制使用东方财富主源（新浪在9:24时现价为0，会导致涨幅=-100%或0）
+        2. calc_gain_percent 内部已增加 f17(虚拟开盘价) 兜底
+        3. 若主源采集失败，退而求其次用降级链（总比没数据好）
+        """
         try:
-            logger.info("=== 采集 9:24 集合竞价快照 ===")
-            self.snapshot_924 = self.filter.fetcher.get_collection_bidding()
+            logger.info("=== 采集 9:24 集合竞价快照（优先东方财富主源）===")
+            fetcher = self.filter.fetcher
+
+            # 优先用东方财富主源（不降级），失败后再用降级链
+            snap = self._safe_fetch_primary(fetcher)
+            if not snap:
+                logger.warning("东方财富主源9:24快照失败，尝试降级链...")
+                snap = fetcher.get_collection_bidding()
+
+            self.snapshot_924 = snap
+
             count = len(self.snapshot_924) if self.snapshot_924 else 0
             logger.info(f"9:24 快照采集完成，共 {count} 只股票")
             # 调试日志：抽样检查 f2/f3/f17/f18 字段，确认竞价数据是否已填充
@@ -69,6 +84,14 @@ class StockServer:
         except Exception as e:
             logger.error(f"9:24 快照采集失败: {e}", exc_info=True)
             self.snapshot_924 = None
+
+    def _safe_fetch_primary(self, fetcher):
+        """安全调用东方财富主源，失败返回空列表（不降级到新浪）。"""
+        try:
+            return fetcher._get_collection_bidding_primary()
+        except Exception as e:
+            logger.warning(f"东方财富主源采集失败: {e}")
+            return []
 
     def run_morning_selection(self):
         try:
@@ -203,10 +226,10 @@ class StockServer:
             if days_ahead == 0:
                 days_ahead = 7
             next_trading_day = now + datetime.timedelta(days=days_ahead)
-            return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 24, 20)
+            return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 24, 10)
 
         run_times = [
-            datetime.datetime(now.year, now.month, now.day, 9, 24, 20),  # 9:24:20 采集快照（延后20秒确保竞价数据已填充）
+            datetime.datetime(now.year, now.month, now.day, 9, 24, 10),  # 9:24:10 采集快照（延后10秒确保竞价数据已填充）
             datetime.datetime(now.year, now.month, now.day, 9, 25, 0),
             datetime.datetime(now.year, now.month, now.day, 14, 55, 0),
         ]
@@ -247,7 +270,7 @@ class StockServer:
                 minute = now.minute
                 second = now.second
 
-                if second != 0 and not (hour == 9 and minute == 24 and second == 20):
+                if second != 0 and not (hour == 9 and minute == 24 and second == 10):
                     next_time = self.get_next_run_time()
                     sleep_seconds = (next_time - now).total_seconds()
                     if sleep_seconds > 60:
@@ -256,7 +279,7 @@ class StockServer:
                     time.sleep(min(sleep_seconds, 3600))
                     continue
 
-                if hour == 9 and minute == 24 and second == 20:
+                if hour == 9 and minute == 24 and second == 10:
                     self.capture_924_snapshot()
                     time.sleep(2)
                 elif hour == 9 and minute == 25:
