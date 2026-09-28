@@ -94,21 +94,28 @@ class StockFilter:
                                 gain_min=3.0, gain_max=8.0,
                                 gain_diff_threshold=2.0,
                                 float_mv_max=20000000000,
-                                amount_ratio_threshold=1.5):
+                                amount_ratio_threshold=1.5,
+                                scheme2_min_gain=0.0,
+                                scheme2_volume_ratio=2.0):
         """
-        早盘集合竞价选股（尾盘拉升型）：
-        1. 竞价金额 >= amount_threshold（元，默认2000万）
-        2. 竞价涨幅 >= gain_min 且 <= gain_max（默认 3% ~ 8%）
-        3. 9:25 较 9:24 拉升判断：
-           - 若9:24有有效价格(f2>0或f17>0)：9:25涨幅 - 9:24涨幅 >= gain_diff_threshold（默认2%）
-           - 若9:24无有效价格（方案B+C）：
-             - 方案C：跳过涨幅差条件
-             - 方案B：用竞价金额增幅判断，9:25金额/9:24金额 >= amount_ratio_threshold（默认1.5）
-        4. 流通市值 <= float_mv_max（元，默认200亿）
+        早盘集合竞价选股，包含两个方案：
+
+        方案1 - 竞价拉升型：
+          1. 竞价金额 >= amount_threshold（元，默认2000万）
+          2. 竞价涨幅 >= gain_min 且 <= gain_max（默认 3% ~ 8%）
+          3. 9:25 较 9:24 拉升判断：
+             - 若9:24有有效价格(f2>0或f17>0)：9:25涨幅 - 9:24涨幅 >= gain_diff_threshold（默认3%）
+             - 若9:24无有效价格：用竞价金额增幅判断或跳过
+          4. 流通市值 <= float_mv_max（元，默认200亿）
+
+        方案2 - 涨停次日竞价型：
+          1. 昨日收盘涨停放巨量（量比>=2）或炸板
+          2. 今日9:25涨幅 >= scheme2_min_gain（默认0%）
 
         参数:
-            snapshot_924: 9:24 分时的行情快照列表（东方财富 clist 格式）
-            amount_ratio_threshold: 9:24无有效价时的金额增幅阈值（默认1.5倍）
+            snapshot_924: 9:24 分时的行情快照列表
+            scheme2_min_gain: 方案2今日竞价涨幅下限（%，默认0）
+            scheme2_volume_ratio: 方案2放巨量的量比阈值（默认2.0）
         """
         bidding_data = self.fetcher.get_collection_bidding()
         if not bidding_data:
@@ -123,6 +130,38 @@ class StockFilter:
                 scoped_data.append(stock)
         bidding_data = scoped_data
 
+        # 构建 code -> 行情 映射（供方案2快速查找）
+        bidding_map = {}
+        for stock in bidding_data:
+            code = str(stock.get('f12', ''))
+            if code:
+                bidding_map[code] = stock
+
+        results = []
+
+        # ===== 方案1：竞价拉升型 =====
+        results.extend(self._filter_auction_scheme1(
+            bidding_data, snapshot_924,
+            amount_threshold, gain_min, gain_max,
+            gain_diff_threshold, float_mv_max, amount_ratio_threshold
+        ))
+
+        # ===== 方案2：涨停次日竞价型 =====
+        scheme2_results = self._filter_auction_scheme2(
+            bidding_map, scheme2_min_gain, scheme2_volume_ratio
+        )
+        # 去重：方案2中已被方案1选中的股票不重复
+        scheme1_codes = {r['code'] for r in results}
+        for r in scheme2_results:
+            if r['code'] not in scheme1_codes:
+                results.append(r)
+
+        return results
+
+    def _filter_auction_scheme1(self, bidding_data, snapshot_924,
+                                amount_threshold, gain_min, gain_max,
+                                gain_diff_threshold, float_mv_max, amount_ratio_threshold):
+        """方案1：竞价拉升型"""
         # 构建 9:24 映射：涨幅、金额、是否有有效价格
         gain_924_map = {}
         amount_924_map = {}
@@ -142,62 +181,46 @@ class StockFilter:
         for stock in bidding_data:
             code = str(stock.get('f12', ''))
             name = str(stock.get('f14', ''))
-            price = to_float(stock.get('f2'))            # 现价（元）
-            prev_close = to_float(stock.get('f18'))      # 昨收（元）
-            amount = to_float(stock.get('f6'))           # 成交额（元）
+            price = to_float(stock.get('f2'))
+            prev_close = to_float(stock.get('f18'))
+            amount = to_float(stock.get('f6'))
             gain = calc_gain_percent(stock)
-            float_mv = to_float(stock.get('f21'))        # 流通市值（元）
+            float_mv = to_float(stock.get('f21'))
 
-            # 条件1：竞价金额 >= 阈值
             if amount < amount_threshold:
                 continue
-
-            # 条件2：竞价涨幅在区间内
             if gain < gain_min or gain > gain_max:
                 continue
-
-            # 条件3：流通市值 <= 上限
             if float_mv > float_mv_max:
                 continue
 
-            # 条件4：拉升判断（方案A/B/C）
             gain_diff = None
             gain_924 = None
             amount_ratio = None
             if snapshot_924 is not None:
                 if code not in gain_924_map:
-                    continue  # 9:24快照中没有该股票，跳过
+                    continue
                 gain_924 = gain_924_map[code]
                 has_price_924 = has_price_924_map.get(code, False)
 
                 if has_price_924:
-                    # 方案A：9:24有有效价格，用涨幅差判断
                     gain_diff = gain - gain_924
                     if gain_diff < gain_diff_threshold:
                         continue
                 else:
-                    # 9:24无有效价格 → 方案B+C
                     amount_924 = amount_924_map.get(code, 0)
                     if amount_924 > 0:
-                        # 方案B：用竞价金额增幅判断拉升
                         amount_ratio = safe_div(amount, amount_924)
                         if amount_ratio < amount_ratio_threshold:
                             continue
-                    # amount_924=0 时走方案C：直接跳过拉升条件
-            # snapshot_924 is None 时不做拉升判断
 
             candidates.append({
-                'code': code,
-                'name': name,
-                'price': price,
-                'prev_close': prev_close,
-                'amount': amount,
-                'gain': gain,
-                'gain_924': gain_924,
-                'gain_diff': gain_diff,
-                'amount_ratio': amount_ratio,
-                'float_mv': float_mv,
+                'code': code, 'name': name, 'price': price,
+                'prev_close': prev_close, 'amount': amount, 'gain': gain,
+                'gain_924': gain_924, 'gain_diff': gain_diff,
+                'amount_ratio': amount_ratio, 'float_mv': float_mv,
                 'industry_raw': str(stock.get('f100', '') or ''),
+                'scheme': '方案1',
             })
 
         if not candidates:
@@ -210,21 +233,103 @@ class StockFilter:
         for c in candidates:
             plate = plate_info.get(c['code'], {})
             results.append({
-                'code': c['code'],
-                'name': c['name'],
+                'code': c['code'], 'name': c['name'],
                 'price': round(c['price'], 2),
                 'prev_close': round(c['prev_close'], 2),
-                'amount': round(c['amount'] / 10000, 2),  # 转为万元展示
+                'amount': round(c['amount'] / 10000, 2),
                 'gain': round(c['gain'], 2),
                 'gain_924': round(c['gain_924'], 2) if c['gain_924'] is not None else None,
                 'gain_diff': round(c['gain_diff'], 2) if c['gain_diff'] is not None else None,
                 'amount_ratio': round(c['amount_ratio'], 2) if c.get('amount_ratio') is not None else None,
-                'float_mv': round(c.get('float_mv', 0), 2),  # 流通市值（元）
+                'float_mv': round(c.get('float_mv', 0), 2),
                 'industry': c.get('industry_raw') or plate.get('industry', ''),
-                'concept': plate.get('concept', '')
+                'concept': plate.get('concept', ''),
+                'scheme': '方案1',
             })
 
         results.sort(key=lambda x: x['gain'] if x['gain_diff'] is None else x['gain_diff'], reverse=True)
+        return results
+
+    def _filter_auction_scheme2(self, bidding_map, min_gain, volume_ratio_threshold):
+        """方案2：涨停次日竞价型。
+        1. 昨日收盘涨停放巨量（量比>=volume_ratio_threshold）或炸板
+        2. 今日9:25涨幅 >= min_gain
+        """
+        # 获取昨日涨停板股票池
+        limit_up_pool = self.fetcher.get_limit_up_pool()
+        if not limit_up_pool:
+            return []
+
+        candidates = []
+        for item in limit_up_pool:
+            code = item['code']
+            # 范围过滤：仅沪深主板，排除ST
+            if not self.is_in_scope(code):
+                continue
+            if self.is_st_stock(item.get('name', '')):
+                continue
+            # 条件1：昨日涨停放巨量 或 炸板
+            is_huge_volume = item.get('volume_ratio', 0) >= volume_ratio_threshold
+            is_burst = item.get('is_burst', False)
+            is_limit_up = item.get('is_limit_up', False)
+            if not ((is_limit_up and is_huge_volume) or is_burst):
+                continue
+            # 条件2：今日竞价涨幅 >= min_gain
+            stock = bidding_map.get(code)
+            if not stock:
+                continue
+            gain = calc_gain_percent(stock)
+            if gain < min_gain:
+                continue
+
+            price = to_float(stock.get('f2'))
+            prev_close = to_float(stock.get('f18'))
+            amount = to_float(stock.get('f6'))
+            float_mv = to_float(stock.get('f21'))
+
+            candidates.append({
+                'code': code,
+                'name': item.get('name', ''),
+                'price': price,
+                'prev_close': prev_close,
+                'amount': amount,
+                'gain': gain,
+                'float_mv': float_mv,
+                'industry_raw': str(stock.get('f100', '') or ''),
+                'scheme': '方案2',
+                'yesterday_change_pct': item.get('change_pct', 0),
+                'yesterday_volume_ratio': item.get('volume_ratio', 0),
+                'yesterday_is_burst': is_burst,
+            })
+
+        if not candidates:
+            return []
+
+        codes = [c['code'] for c in candidates]
+        plate_info = self.fetcher.get_stock_plates_batch(codes)
+
+        results = []
+        for c in candidates:
+            plate = plate_info.get(c['code'], {})
+            results.append({
+                'code': c['code'], 'name': c['name'],
+                'price': round(c['price'], 2),
+                'prev_close': round(c['prev_close'], 2),
+                'amount': round(c['amount'] / 10000, 2),
+                'gain': round(c['gain'], 2),
+                'gain_924': None,
+                'gain_diff': None,
+                'amount_ratio': None,
+                'float_mv': round(c.get('float_mv', 0), 2),
+                'industry': c.get('industry_raw') or plate.get('industry', ''),
+                'concept': plate.get('concept', ''),
+                'scheme': '方案2',
+                'yesterday_change_pct': round(c['yesterday_change_pct'], 2),
+                'yesterday_volume_ratio': round(c['yesterday_volume_ratio'], 2),
+                'yesterday_is_burst': c['yesterday_is_burst'],
+            })
+
+        results.sort(key=lambda x: x['gain'], reverse=True)
         return results
 
     @staticmethod

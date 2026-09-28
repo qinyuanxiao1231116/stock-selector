@@ -196,6 +196,70 @@ class StockDataFetcher:
             default_value={}
         )
 
+    def get_limit_up_pool(self, date=None):
+        """获取指定日期的涨停板股票池（含涨停和炸板）。
+
+        使用东方财富涨停板专题接口，返回字段：
+        - code/name: 代码/名称
+        - close: 收盘价
+        - high: 最高价
+        - limit_up_price: 涨停价
+        - change_pct: 涨幅(%)
+        - volume_ratio: 量比
+        - zbc: 炸板次数（>0表示炸板）
+        - is_limit_up: 是否涨停收盘（True/False）
+        - is_burst: 是否炸板（True/False）
+        """
+        if date is None:
+            # 默认取最近一个交易日（今天或昨天）
+            now = datetime.date.today()
+            date = now.strftime('%Y%m%d')
+        url = 'http://push2ex.eastmoney.com/getTopicZTPool'
+        params = {
+            'ut': '7eea3edcaed734bea9cbfc24409ed989',
+            'dpt': 'wz.ztzt',
+            'Pageindex': '0',
+            'pagesize': '500',
+            'sort': 'fbt:asc',
+            'date': date,
+        }
+        try:
+            data = self._get_json(url, params, retries=3)
+            pool = data.get('data', {}).get('pool', []) if data else []
+        except Exception as e:
+            logger.warning(f"涨停板接口失败: {e}")
+            return []
+
+        from stock_filter import to_float, to_int
+        results = []
+        for item in pool:
+            code = str(item.get('f12', ''))
+            if not code:
+                continue
+            close = to_float(item.get('f2'))
+            high = to_float(item.get('f15'))
+            limit_up_price = to_float(item.get('zt_price'))
+            change_pct = to_float(item.get('f3'))
+            volume_ratio = to_float(item.get('f10'))
+            zbc = to_int(item.get('zbc'))
+            # 是否涨停收盘：涨幅 >= 涨停阈值（简化判断，或收盘价接近涨停价）
+            is_limit_up = change_pct >= 9.5 if limit_up_price > 0 else False
+            # 是否炸板：最高价达到涨停价但炸板次数 > 0
+            is_burst = zbc > 0 or (high >= limit_up_price > 0 and close < limit_up_price)
+            results.append({
+                'code': code,
+                'name': str(item.get('f14', '')),
+                'close': close,
+                'high': high,
+                'limit_up_price': limit_up_price,
+                'change_pct': change_pct,
+                'volume_ratio': volume_ratio,
+                'zbc': zbc,
+                'is_limit_up': is_limit_up,
+                'is_burst': is_burst,
+            })
+        return results
+
     def _get_stock_plate_single(self, code):
         """获取个股行业板块。
         注意：行业名在 f127（如"白酒Ⅱ"），地区板块在 f128。

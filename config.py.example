@@ -38,6 +38,10 @@ AUCTION_AMOUNT_RATIO_THRESHOLD = 1.5
 # 流通市值上限（元）：不大于该值
 AUCTION_FLOAT_MV_MAX = 20000000000  # 200亿
 
+# 早盘方案2：涨停次日竞价型
+AUCTION_SCHEME2_MIN_GAIN = 0.0          # 今日竞价涨幅下限（%）
+AUCTION_SCHEME2_VOLUME_RATIO = 2.0      # 昨日放巨量的量比阈值
+
 # ===== 尾盘选股条件（14:55） =====
 # 方案1：涨停后缩量回踩
 LATE_SCHEME1_LOOKBACK_DAYS = 15   # 回溯交易日数（找涨停）

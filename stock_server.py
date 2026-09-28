@@ -19,6 +19,8 @@ AUCTION_GAIN_MAX = getattr(_cfg, 'AUCTION_GAIN_MAX', 8.0)
 AUCTION_GAIN_DIFF_THRESHOLD = getattr(_cfg, 'AUCTION_GAIN_DIFF_THRESHOLD', 2.0)
 AUCTION_AMOUNT_RATIO_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_RATIO_THRESHOLD', 1.5)
 AUCTION_FLOAT_MV_MAX = getattr(_cfg, 'AUCTION_FLOAT_MV_MAX', 20000000000)  # 200亿
+AUCTION_SCHEME2_MIN_GAIN = getattr(_cfg, 'AUCTION_SCHEME2_MIN_GAIN', 0.0)  # 方案2今日涨幅下限
+AUCTION_SCHEME2_VOLUME_RATIO = getattr(_cfg, 'AUCTION_SCHEME2_VOLUME_RATIO', 2.0)  # 方案2放巨量比阈值
 
 # 尾盘选股条件
 LATE_LOOKBACK_DAYS = getattr(_cfg, 'LATE_LOOKBACK_DAYS', 20)
@@ -105,7 +107,9 @@ class StockServer:
                 gain_max=AUCTION_GAIN_MAX,
                 gain_diff_threshold=AUCTION_GAIN_DIFF_THRESHOLD,
                 float_mv_max=AUCTION_FLOAT_MV_MAX,
-                amount_ratio_threshold=AUCTION_AMOUNT_RATIO_THRESHOLD
+                amount_ratio_threshold=AUCTION_AMOUNT_RATIO_THRESHOLD,
+                scheme2_min_gain=AUCTION_SCHEME2_MIN_GAIN,
+                scheme2_volume_ratio=AUCTION_SCHEME2_VOLUME_RATIO
             )
 
             logger.info(f"集合竞价选股结果: {len(auction_stocks)}只")
@@ -120,10 +124,8 @@ class StockServer:
                     f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                     f"今日集合竞价暂无符合条件的股票。\n\n"
                     f"**选股条件**:\n"
-                    f"- 竞价金额 >= {AUCTION_AMOUNT_THRESHOLD / 10000:.0f}万\n"
-                    f"- 竞价涨幅 {AUCTION_GAIN_MIN}% ~ {AUCTION_GAIN_MAX}%\n"
-                    f"- 9:25较9:24拉升 >= {AUCTION_GAIN_DIFF_THRESHOLD}%\n"
-                    f"- 流通市值 <= {AUCTION_FLOAT_MV_MAX / 100000000:.0f}亿"
+                    f"- 方案1：竞价金额>={AUCTION_AMOUNT_THRESHOLD/10000:.0f}万 + 涨幅{AUCTION_GAIN_MIN}%~{AUCTION_GAIN_MAX}% + 拉升>={AUCTION_GAIN_DIFF_THRESHOLD}% + 流通市值<={AUCTION_FLOAT_MV_MAX/100000000:.0f}亿\n"
+                    f"- 方案2：昨日涨停放巨量(量比>=2)或炸板 + 今日涨幅>={AUCTION_SCHEME2_MIN_GAIN}%"
                 )
                 logger.info("暂无符合条件的股票")
                 self.notifier.send_message(title, content)
@@ -166,32 +168,50 @@ class StockServer:
         content = "## A股集合竞价选股结果\n\n"
         content += f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         content += "**选股条件**:\n"
-        content += f"- 竞价金额 >= {AUCTION_AMOUNT_THRESHOLD / 10000:.0f}万\n"
-        content += f"- 竞价涨幅 {AUCTION_GAIN_MIN}% ~ {AUCTION_GAIN_MAX}%\n"
-        content += f"- 拉升：9:24有价格时涨幅差>={AUCTION_GAIN_DIFF_THRESHOLD}%；无价格时金额增幅>={AUCTION_AMOUNT_RATIO_THRESHOLD}倍\n"
-        content += f"- 流通市值 <= {AUCTION_FLOAT_MV_MAX / 100000000:.0f}亿\n\n"
+        content += f"- 方案1：竞价金额>={AUCTION_AMOUNT_THRESHOLD/10000:.0f}万 + 涨幅{AUCTION_GAIN_MIN}%~{AUCTION_GAIN_MAX}% + 拉升>={AUCTION_GAIN_DIFF_THRESHOLD}% + 流通市值<={AUCTION_FLOAT_MV_MAX/100000000:.0f}亿\n"
+        content += f"- 方案2：昨日涨停放巨量(量比>=2)或炸板 + 今日涨幅>={AUCTION_SCHEME2_MIN_GAIN}%\n\n"
 
-        content += "| 代码 | 名称 | 竞价价 | 涨幅(%) | 9:24涨幅(%) | 拉升 | 竞价金额(万) | 流通市值(亿) | 行业 |\n"
-        content += "|------|------|--------|---------|-------------|------|--------------|--------------|------|\n"
-        for stock in auction_stocks[:20]:
-            gain_924 = stock.get('gain_924')
-            gain_diff = stock.get('gain_diff')
-            amount_ratio = stock.get('amount_ratio')
-            # 拉升显示：优先涨幅差，否则显示金额增幅倍数
-            if gain_diff is not None:
-                surge = f"{gain_diff}%"
-            elif amount_ratio is not None:
-                surge = f"{amount_ratio}x"
-            else:
-                surge = "-"
-            float_mv_yi = round(stock.get('float_mv', 0) / 100000000, 2) if stock.get('float_mv') else '-'
-            content += (
-                f"| {stock['code']} | {stock['name']} | {stock['price']} "
-                f"| {stock['gain']} | {gain_924 if gain_924 is not None else '-'} "
-                f"| {surge} | {stock['amount']} | {float_mv_yi} | {stock['industry']} |\n"
-            )
+        scheme1 = [s for s in auction_stocks if s.get('scheme') == '方案1']
+        scheme2 = [s for s in auction_stocks if s.get('scheme') == '方案2']
 
-        content += f"\n**合计**: {len(auction_stocks)}只股票"
+        if scheme1:
+            content += "### 方案1：竞价拉升型\n\n"
+            content += "| 代码 | 名称 | 竞价价 | 涨幅(%) | 9:24涨幅(%) | 拉升 | 竞价金额(万) | 流通市值(亿) | 行业 |\n"
+            content += "|------|------|--------|---------|-------------|------|--------------|--------------|------|\n"
+            for stock in scheme1[:15]:
+                gain_924 = stock.get('gain_924')
+                gain_diff = stock.get('gain_diff')
+                amount_ratio = stock.get('amount_ratio')
+                if gain_diff is not None:
+                    surge = f"{gain_diff}%"
+                elif amount_ratio is not None:
+                    surge = f"{amount_ratio}x"
+                else:
+                    surge = "-"
+                float_mv_yi = round(stock.get('float_mv', 0) / 100000000, 2) if stock.get('float_mv') else '-'
+                content += (
+                    f"| {stock['code']} | {stock['name']} | {stock['price']} "
+                    f"| {stock['gain']} | {gain_924 if gain_924 is not None else '-'} "
+                    f"| {surge} | {stock['amount']} | {float_mv_yi} | {stock['industry']} |\n"
+                )
+            content += "\n"
+
+        if scheme2:
+            content += "### 方案2：涨停次日竞价型\n\n"
+            content += "| 代码 | 名称 | 竞价价 | 今日涨幅(%) | 昨日涨幅(%) | 昨量比 | 昨日炸板 | 竞价金额(万) | 流通市值(亿) | 行业 |\n"
+            content += "|------|------|--------|------------|------------|--------|----------|--------------|--------------|------|\n"
+            for stock in scheme2[:15]:
+                float_mv_yi = round(stock.get('float_mv', 0) / 100000000, 2) if stock.get('float_mv') else '-'
+                burst = "是" if stock.get('yesterday_is_burst') else "否"
+                content += (
+                    f"| {stock['code']} | {stock['name']} | {stock['price']} "
+                    f"| {stock['gain']} | {stock.get('yesterday_change_pct', '-')} "
+                    f"| {stock.get('yesterday_volume_ratio', '-')} | {burst} "
+                    f"| {stock['amount']} | {float_mv_yi} | {stock['industry']} |\n"
+                )
+            content += "\n"
+
+        content += f"**合计**: {len(auction_stocks)}只股票（方案1:{len(scheme1)}只, 方案2:{len(scheme2)}只）"
         return content
 
     def format_late_notification(self, late_session):
