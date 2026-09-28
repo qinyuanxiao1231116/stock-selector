@@ -318,12 +318,12 @@ class StockFilter:
         """
         尾盘选股（14:55），包含两个方案：
 
-        方案1 - 涨停后回踩EXPMA10缩量，次日放量上涨：
+        方案1 - 涨停后回踩EXPMA10缩量，次日收十字星/倒T：
           1. 最近15个交易日有过涨停
           2. 涨停后未跌破涨停日最低价
           3. 昨日回踩EXPMA10 + 收十字星/倒T
           4. 昨日缩量：成交量 <= 涨停回调期间最大量的1/2
-          5. 今日较昨日放量上涨（量>昨日量 且 ≤昨日量×2）+ 收十字星/倒T
+          5. 今日收十字星/倒T（不要求放量上涨）
 
         方案2 - 连阳承接不破均线：
           1. 连续6个交易日及以上收阳
@@ -432,12 +432,12 @@ class StockFilter:
         return expma
 
     def _check_scheme1(self, code, klines, today, current_price):
-        """方案1：涨停后回踩EXPMA10缩量，次日放量上涨收十字星/倒T
+        """方案1：涨停后回踩EXPMA10缩量，次日收十字星/倒T
         1. 近15日有涨停（不含今日）
         2. 涨停后不破涨停日最低价
         3. 昨日回踩EXPMA10 + 收十字星/倒T
         4. 昨日缩量：成交量 <= 涨停回调期间最大量的1/2
-        5. 今日较昨日放量上涨（量 > 昨日量 且 ≤ 昨日量×2）+ 收十字星/倒T
+        5. 今日收十字星或倒T（不要求放量上涨）
         """
         # 至少需要3天K线（前天、昨天、今天）
         if len(klines) < 3:
@@ -489,14 +489,7 @@ class StockFilter:
         if max_pullback_vol > 0 and yest_vol > max_pullback_vol * 0.5:
             return None
 
-        # 7. 今日较昨日放量上涨：量 > 昨日量 且 ≤ 昨日量×2（放量不超过1倍）
-        today_vol = today.get('volume', 0)
-        if yest_vol > 0 and (today_vol <= yest_vol or today_vol > yest_vol * 2):
-            return None
-        if today.get('close', 0) <= yesterday.get('close', 0):
-            return None
-
-        # 8. 今日收十字星或倒T
+        # 7. 今日收十字星或倒T（去掉放量上涨条件）
         today_doji = self.is_doji(today)
         today_inv_t = self.is_inverted_t(today)
         if not (today_doji or today_inv_t):
@@ -506,7 +499,7 @@ class StockFilter:
         return {
             'open': today.get('open', 0),
             'pattern': today_pattern,
-            'volume': today_vol,
+            'volume': today.get('volume', 0),
             'max_volume_pullback': max_pullback_vol,
         }
 
