@@ -44,6 +44,14 @@ def calc_gain_percent(stock):
         # 用 f2/f18 算出的结果同样做合理性校验，避免脏数据
         if -21.0 <= gain <= 21.0:
             return gain
+
+    # 9:24集合竞价阶段 f2(现价) 可能为0（未最终撮合），
+    # 此时用 f17(虚拟开盘价/竞价价) 计算涨幅
+    open_price = to_float(stock.get('f17'))
+    if open_price > 0 and prev_close > 0:
+        gain = (open_price - prev_close) / prev_close * 100
+        if -21.0 <= gain <= 21.0:
+            return gain
     return 0.0
 
 class StockFilter:

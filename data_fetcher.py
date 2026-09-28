@@ -177,7 +177,7 @@ class StockDataFetcher:
                 break
             if len(page_rows) < page_size:
                 break
-            time.sleep(0.1)  # 轻微限速，避免被接口断连
+            time.sleep(0.05)  # 轻微限速，避免被接口断连
 
         logger.info(f"[东方财富] 实时行情分页拉取完成: {len(all_rows)}只 (total={total})")
         # 覆盖率过低视为失败，触发降级（分页中途被限流会静默截断）
