@@ -93,16 +93,22 @@ class StockFilter:
                                 amount_threshold=20000000,
                                 gain_min=3.0, gain_max=8.0,
                                 gain_diff_threshold=2.0,
-                                float_mv_max=20000000000):
+                                float_mv_max=20000000000,
+                                amount_ratio_threshold=1.5):
         """
         早盘集合竞价选股（尾盘拉升型）：
         1. 竞价金额 >= amount_threshold（元，默认2000万）
         2. 竞价涨幅 >= gain_min 且 <= gain_max（默认 3% ~ 8%）
-        3. 9:25 涨幅 - 9:24 涨幅 >= gain_diff_threshold（默认 2%，即最后一分钟至少拉升2%）
+        3. 9:25 较 9:24 拉升判断：
+           - 若9:24有有效价格(f2>0或f17>0)：9:25涨幅 - 9:24涨幅 >= gain_diff_threshold（默认2%）
+           - 若9:24无有效价格（方案B+C）：
+             - 方案C：跳过涨幅差条件
+             - 方案B：用竞价金额增幅判断，9:25金额/9:24金额 >= amount_ratio_threshold（默认1.5）
         4. 流通市值 <= float_mv_max（元，默认200亿）
 
         参数:
-            snapshot_924: 9:24 分时的行情快照列表（东方财富 clist 格式），用于对比最后一分钟拉升
+            snapshot_924: 9:24 分时的行情快照列表（东方财富 clist 格式）
+            amount_ratio_threshold: 9:24无有效价时的金额增幅阈值（默认1.5倍）
         """
         bidding_data = self.fetcher.get_collection_bidding()
         if not bidding_data:
@@ -117,13 +123,20 @@ class StockFilter:
                 scoped_data.append(stock)
         bidding_data = scoped_data
 
-        # 构建 9:24 涨幅映射 {code: gain_percent}
+        # 构建 9:24 映射：涨幅、金额、是否有有效价格
         gain_924_map = {}
+        amount_924_map = {}
+        has_price_924_map = {}
         if snapshot_924:
             for stock in snapshot_924:
                 code = str(stock.get('f12', ''))
-                if code:
-                    gain_924_map[code] = calc_gain_percent(stock)
+                if not code:
+                    continue
+                gain_924_map[code] = calc_gain_percent(stock)
+                amount_924_map[code] = to_float(stock.get('f6'))
+                f2 = to_float(stock.get('f2'))
+                f17 = to_float(stock.get('f17'))
+                has_price_924_map[code] = (f2 > 0 or f17 > 0)
 
         candidates = []
         for stock in bidding_data:
@@ -147,17 +160,31 @@ class StockFilter:
             if float_mv > float_mv_max:
                 continue
 
-            # 条件4：9:25 较 9:24 拉升 >= gain_diff_threshold
+            # 条件4：拉升判断（方案A/B/C）
+            gain_diff = None
+            gain_924 = None
+            amount_ratio = None
             if snapshot_924 is not None:
-                gain_924 = gain_924_map.get(code)
-                if gain_924 is None:
-                    continue
-                gain_diff = gain - gain_924
-                if gain_diff < gain_diff_threshold:
-                    continue
-            else:
-                gain_924 = None
-                gain_diff = None
+                if code not in gain_924_map:
+                    continue  # 9:24快照中没有该股票，跳过
+                gain_924 = gain_924_map[code]
+                has_price_924 = has_price_924_map.get(code, False)
+
+                if has_price_924:
+                    # 方案A：9:24有有效价格，用涨幅差判断
+                    gain_diff = gain - gain_924
+                    if gain_diff < gain_diff_threshold:
+                        continue
+                else:
+                    # 9:24无有效价格 → 方案B+C
+                    amount_924 = amount_924_map.get(code, 0)
+                    if amount_924 > 0:
+                        # 方案B：用竞价金额增幅判断拉升
+                        amount_ratio = safe_div(amount, amount_924)
+                        if amount_ratio < amount_ratio_threshold:
+                            continue
+                    # amount_924=0 时走方案C：直接跳过拉升条件
+            # snapshot_924 is None 时不做拉升判断
 
             candidates.append({
                 'code': code,
@@ -168,8 +195,9 @@ class StockFilter:
                 'gain': gain,
                 'gain_924': gain_924,
                 'gain_diff': gain_diff,
+                'amount_ratio': amount_ratio,
                 'float_mv': float_mv,
-                'industry_raw': str(stock.get('f100', '') or ''),  # 行情自带行业（东财 f100）
+                'industry_raw': str(stock.get('f100', '') or ''),
             })
 
         if not candidates:
@@ -190,6 +218,7 @@ class StockFilter:
                 'gain': round(c['gain'], 2),
                 'gain_924': round(c['gain_924'], 2) if c['gain_924'] is not None else None,
                 'gain_diff': round(c['gain_diff'], 2) if c['gain_diff'] is not None else None,
+                'amount_ratio': round(c['amount_ratio'], 2) if c.get('amount_ratio') is not None else None,
                 'float_mv': round(c.get('float_mv', 0), 2),  # 流通市值（元）
                 'industry': c.get('industry_raw') or plate.get('industry', ''),
                 'concept': plate.get('concept', '')

@@ -17,6 +17,7 @@ AUCTION_AMOUNT_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_THRESHOLD', 20000000)  
 AUCTION_GAIN_MIN = getattr(_cfg, 'AUCTION_GAIN_MIN', 3.0)
 AUCTION_GAIN_MAX = getattr(_cfg, 'AUCTION_GAIN_MAX', 8.0)
 AUCTION_GAIN_DIFF_THRESHOLD = getattr(_cfg, 'AUCTION_GAIN_DIFF_THRESHOLD', 2.0)
+AUCTION_AMOUNT_RATIO_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_RATIO_THRESHOLD', 1.5)
 AUCTION_FLOAT_MV_MAX = getattr(_cfg, 'AUCTION_FLOAT_MV_MAX', 20000000000)  # 200亿
 
 # 尾盘选股条件
@@ -103,7 +104,8 @@ class StockServer:
                 gain_min=AUCTION_GAIN_MIN,
                 gain_max=AUCTION_GAIN_MAX,
                 gain_diff_threshold=AUCTION_GAIN_DIFF_THRESHOLD,
-                float_mv_max=AUCTION_FLOAT_MV_MAX
+                float_mv_max=AUCTION_FLOAT_MV_MAX,
+                amount_ratio_threshold=AUCTION_AMOUNT_RATIO_THRESHOLD
             )
 
             logger.info(f"集合竞价选股结果: {len(auction_stocks)}只")
@@ -166,19 +168,27 @@ class StockServer:
         content += "**选股条件**:\n"
         content += f"- 竞价金额 >= {AUCTION_AMOUNT_THRESHOLD / 10000:.0f}万\n"
         content += f"- 竞价涨幅 {AUCTION_GAIN_MIN}% ~ {AUCTION_GAIN_MAX}%\n"
-        content += f"- 9:25较9:24拉升 >= {AUCTION_GAIN_DIFF_THRESHOLD}%\n"
+        content += f"- 拉升：9:24有价格时涨幅差>={AUCTION_GAIN_DIFF_THRESHOLD}%；无价格时金额增幅>={AUCTION_AMOUNT_RATIO_THRESHOLD}倍\n"
         content += f"- 流通市值 <= {AUCTION_FLOAT_MV_MAX / 100000000:.0f}亿\n\n"
 
-        content += "| 代码 | 名称 | 竞价价 | 涨幅(%) | 9:24涨幅(%) | 拉升(%) | 竞价金额(万) | 流通市值(亿) | 行业 |\n"
-        content += "|------|------|--------|---------|-------------|---------|--------------|--------------|------|\n"
+        content += "| 代码 | 名称 | 竞价价 | 涨幅(%) | 9:24涨幅(%) | 拉升 | 竞价金额(万) | 流通市值(亿) | 行业 |\n"
+        content += "|------|------|--------|---------|-------------|------|--------------|--------------|------|\n"
         for stock in auction_stocks[:20]:
             gain_924 = stock.get('gain_924')
             gain_diff = stock.get('gain_diff')
+            amount_ratio = stock.get('amount_ratio')
+            # 拉升显示：优先涨幅差，否则显示金额增幅倍数
+            if gain_diff is not None:
+                surge = f"{gain_diff}%"
+            elif amount_ratio is not None:
+                surge = f"{amount_ratio}x"
+            else:
+                surge = "-"
             float_mv_yi = round(stock.get('float_mv', 0) / 100000000, 2) if stock.get('float_mv') else '-'
             content += (
                 f"| {stock['code']} | {stock['name']} | {stock['price']} "
                 f"| {stock['gain']} | {gain_924 if gain_924 is not None else '-'} "
-                f"| {gain_diff if gain_diff is not None else '-'} | {stock['amount']} | {float_mv_yi} | {stock['industry']} |\n"
+                f"| {surge} | {stock['amount']} | {float_mv_yi} | {stock['industry']} |\n"
             )
 
         content += f"\n**合计**: {len(auction_stocks)}只股票"

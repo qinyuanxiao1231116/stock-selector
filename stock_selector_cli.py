@@ -10,6 +10,7 @@ AUCTION_AMOUNT_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_THRESHOLD', 20000000)
 AUCTION_GAIN_MIN = getattr(_cfg, 'AUCTION_GAIN_MIN', 3.0)
 AUCTION_GAIN_MAX = getattr(_cfg, 'AUCTION_GAIN_MAX', 8.0)
 AUCTION_GAIN_DIFF_THRESHOLD = getattr(_cfg, 'AUCTION_GAIN_DIFF_THRESHOLD', 2.0)
+AUCTION_AMOUNT_RATIO_THRESHOLD = getattr(_cfg, 'AUCTION_AMOUNT_RATIO_THRESHOLD', 1.5)
 AUCTION_FLOAT_MV_MAX = getattr(_cfg, 'AUCTION_FLOAT_MV_MAX', 20000000000)
 
 class StockSelectorCLI:
@@ -37,7 +38,8 @@ class StockSelectorCLI:
                     gain_min=AUCTION_GAIN_MIN,
                     gain_max=AUCTION_GAIN_MAX,
                     gain_diff_threshold=AUCTION_GAIN_DIFF_THRESHOLD,
-                    float_mv_max=AUCTION_FLOAT_MV_MAX
+                    float_mv_max=AUCTION_FLOAT_MV_MAX,
+                    amount_ratio_threshold=AUCTION_AMOUNT_RATIO_THRESHOLD
                 )
                 print(f"集合竞价选股: {len(auction_stocks)}只")
 

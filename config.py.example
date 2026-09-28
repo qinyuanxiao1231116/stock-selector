@@ -31,6 +31,10 @@ AUCTION_GAIN_MAX = 8.0
 # 即最后一分钟竞价拉升幅度至少为该值
 AUCTION_GAIN_DIFF_THRESHOLD = 2.0
 
+# 9:24无有效价格时的金额增幅阈值：9:25竞价金额 / 9:24竞价金额 >= 该值
+# 用于方案B：用竞价金额增幅替代涨幅差判断拉升
+AUCTION_AMOUNT_RATIO_THRESHOLD = 1.5
+
 # 流通市值上限（元）：不大于该值
 AUCTION_FLOAT_MV_MAX = 20000000000  # 200亿
 
