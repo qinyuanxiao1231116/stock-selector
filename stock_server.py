@@ -248,18 +248,30 @@ class StockServer:
         now = datetime.datetime.now()
         return now.weekday() < 5
 
+    @staticmethod
+    def _days_to_next_trading_day(weekday):
+        """计算从给定 weekday 到下一个交易日的天数。
+        周一(0)→1(周二) 周二(1)→1 周三(2)→1 周四(3)→1 周五(4)→3(下周一) 周六(5)→2 周日(6)→1
+        """
+        if weekday < 4:      # 周一~周四 → 明天
+            return 1
+        elif weekday == 4:   # 周五 → 下周一（3天）
+            return 3
+        elif weekday == 5:   # 周六 → 下周一（2天）
+            return 2
+        else:                # 周日 → 下周一（1天）
+            return 1
+
     def get_next_run_time(self):
         now = datetime.datetime.now()
 
         if not self.is_trading_day():
-            days_ahead = (7 - now.weekday()) % 7
-            if days_ahead == 0:
-                days_ahead = 7
+            days_ahead = self._days_to_next_trading_day(now.weekday())
             next_trading_day = now + datetime.timedelta(days=days_ahead)
             return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 22, 0)
 
         run_times = [
-            datetime.datetime(now.year, now.month, now.day, 9, 22, 0),  # 9:22 采集快照（提前到9:22，留足采集时间）
+            datetime.datetime(now.year, now.month, now.day, 9, 22, 0),  # 9:22 采集快照
             datetime.datetime(now.year, now.month, now.day, 9, 25, 0),
             datetime.datetime(now.year, now.month, now.day, 14, 55, 0),
         ]
@@ -268,9 +280,8 @@ class StockServer:
             if run_time > now:
                 return run_time
 
-        days_ahead = (7 - now.weekday()) % 7
-        if days_ahead == 0:
-            days_ahead = 7
+        # 今日所有时段已过，取下一个交易日
+        days_ahead = self._days_to_next_trading_day(now.weekday())
         next_trading_day = now + datetime.timedelta(days=days_ahead)
         return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 22, 0)
 
