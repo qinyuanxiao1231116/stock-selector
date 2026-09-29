@@ -48,7 +48,7 @@ class StockServer:
             notifiers.append(WxPusherNotifier(WXPUSHER_APP_TOKEN, WXPUSHER_UIDS))
         self.notifier = MultiNotifier(notifiers)
         self.is_running = True
-        self.snapshot_924 = None  # 9:24 分时行情快照
+        self.snapshot_924 = None  # 9:22 分时行情快照
 
     def log_and_send(self, title, content):
         logger.info(title)
@@ -56,36 +56,36 @@ class StockServer:
         self.notifier.send_message(title, content)
 
     def capture_924_snapshot(self):
-        """采集 9:24 分时的行情快照，用于与 9:25 最终竞价做涨幅对比。
+        """采集 9:22 分时的行情快照，用于与 9:25 最终竞价做涨幅对比。
 
         策略：
-        1. 强制使用东方财富主源（新浪在9:24时现价为0，会导致涨幅=-100%或0）
+        1. 强制使用东方财富主源（新浪在竞价阶段现价可能为0，会导致涨幅异常）
         2. calc_gain_percent 内部已增加 f17(虚拟开盘价) 兜底
         3. 若主源采集失败，退而求其次用降级链（总比没数据好）
         """
         try:
-            logger.info("=== 采集 9:24 集合竞价快照（优先东方财富主源）===")
+            logger.info("=== 采集 9:22 集合竞价快照（优先东方财富主源）===")
             fetcher = self.filter.fetcher
 
             # 优先用东方财富主源（不降级），失败后再用降级链
             snap = self._safe_fetch_primary(fetcher)
             if not snap:
-                logger.warning("东方财富主源9:24快照失败，尝试降级链...")
+                logger.warning("东方财富主源9:22快照失败，尝试降级链...")
                 snap = fetcher.get_collection_bidding()
 
             self.snapshot_924 = snap
 
             count = len(self.snapshot_924) if self.snapshot_924 else 0
-            logger.info(f"9:24 快照采集完成，共 {count} 只股票")
+            logger.info(f"9:22 快照采集完成，共 {count} 只股票")
             # 调试日志：抽样检查 f2/f3/f17/f18 字段，确认竞价数据是否已填充
             if self.snapshot_924:
                 sample = self.snapshot_924[:3]
                 for s in sample:
-                    logger.info(f"9:24样本 {s.get('f12')} {s.get('f14')}: "
+                    logger.info(f"9:22样本 {s.get('f12')} {s.get('f14')}: "
                                 f"f2={s.get('f2')} f3={s.get('f3')} f17={s.get('f17')} "
                                 f"f18={s.get('f18')} f21={s.get('f21')}")
         except Exception as e:
-            logger.error(f"9:24 快照采集失败: {e}", exc_info=True)
+            logger.error(f"9:22 快照采集失败: {e}", exc_info=True)
             self.snapshot_924 = None
 
     def _safe_fetch_primary(self, fetcher):
@@ -176,7 +176,7 @@ class StockServer:
 
         if scheme1:
             content += "### 方案1：竞价拉升型\n\n"
-            content += "| 代码 | 名称 | 竞价价 | 涨幅(%) | 9:24涨幅(%) | 拉升 | 竞价金额(万) | 流通市值(亿) | 行业 |\n"
+            content += "| 代码 | 名称 | 竞价价 | 涨幅(%) | 9:22涨幅(%) | 拉升 | 竞价金额(万) | 流通市值(亿) | 行业 |\n"
             content += "|------|------|--------|---------|-------------|------|--------------|--------------|------|\n"
             for stock in scheme1[:15]:
                 gain_924 = stock.get('gain_924')
@@ -256,10 +256,10 @@ class StockServer:
             if days_ahead == 0:
                 days_ahead = 7
             next_trading_day = now + datetime.timedelta(days=days_ahead)
-            return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 24, 10)
+            return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 22, 0)
 
         run_times = [
-            datetime.datetime(now.year, now.month, now.day, 9, 24, 10),  # 9:24:10 采集快照（延后10秒确保竞价数据已填充）
+            datetime.datetime(now.year, now.month, now.day, 9, 22, 0),  # 9:22 采集快照（提前到9:22，留足采集时间）
             datetime.datetime(now.year, now.month, now.day, 9, 25, 0),
             datetime.datetime(now.year, now.month, now.day, 14, 55, 0),
         ]
@@ -272,7 +272,7 @@ class StockServer:
         if days_ahead == 0:
             days_ahead = 7
         next_trading_day = now + datetime.timedelta(days=days_ahead)
-        return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 24, 0)
+        return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 22, 0)
 
     def run(self):
         logger.info("=== A股选股服务器启动 ===")
@@ -282,7 +282,7 @@ class StockServer:
         if WXPUSHER_APP_TOKEN and WXPUSHER_UIDS:
             channels.append(f"WxPusher({len(WXPUSHER_UIDS)}人)")
         logger.info(f"推送通道: {', '.join(channels) if channels else '未配置'}")
-        logger.info("每日运行时间: 9:24(快照)、9:25(集合竞价选股)、14:55(尾盘)")
+        logger.info("每日运行时间: 9:22(快照)、9:25(集合竞价选股)、14:55(尾盘)")
 
         # 记录今日各任务是否已执行，避免同一分钟内重复执行
         self._executed_today = set()  # 元素如 '2026-09-29_0924'
@@ -303,17 +303,17 @@ class StockServer:
                 hour = now.hour
                 minute = now.minute
                 date_key = now.strftime('%Y-%m-%d')
-                key_0924 = f"{date_key}_0924"
+                key_0922 = f"{date_key}_0922"
                 key_0925 = f"{date_key}_0925"
                 key_1455 = f"{date_key}_1455"
 
                 executed = False
 
-                # 9:24 采集快照（9:24:00~9:24:59 内只执行一次）
-                if hour == 9 and minute == 24 and key_0924 not in self._executed_today:
-                    logger.info(f"=== 9:24 快照任务触发（{now.strftime('%H:%M:%S')}）===")
+                # 9:22 采集快照（9:22:00~9:22:59 内只执行一次）
+                if hour == 9 and minute == 22 and key_0922 not in self._executed_today:
+                    logger.info(f"=== 9:22 快照任务触发（{now.strftime('%H:%M:%S')}）===")
                     self.capture_924_snapshot()
-                    self._executed_today.add(key_0924)
+                    self._executed_today.add(key_0922)
                     executed = True
                     # 快照若耗时过长（跨过9:25），补执行早盘选股
                     after = datetime.datetime.now()
@@ -369,7 +369,7 @@ if __name__ == "__main__":
 
     if test_mode:
         try:
-            logger.info("手动测试集合竞价选股（无9:24快照，仅校验金额与涨幅条件）...")
+            logger.info("手动测试集合竞价选股（无9:22快照，仅校验金额与涨幅条件）...")
             server.run_morning_selection()
             logger.info("手动测试尾盘选股...")
             server.run_late_session_selection()
