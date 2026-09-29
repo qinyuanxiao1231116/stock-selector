@@ -284,11 +284,15 @@ class StockServer:
         logger.info(f"推送通道: {', '.join(channels) if channels else '未配置'}")
         logger.info("每日运行时间: 9:24(快照)、9:25(集合竞价选股)、14:55(尾盘)")
 
+        # 记录今日各任务是否已执行，避免同一分钟内重复执行
+        self._executed_today = set()  # 元素如 '2026-09-29_0924'
+
         try:
             while self.is_running:
                 now = datetime.datetime.now()
 
                 if not self.is_trading_day():
+                    self._executed_today.clear()
                     next_time = self.get_next_run_time()
                     sleep_seconds = (next_time - now).total_seconds()
                     logger.info(f"非交易日({now.strftime('%Y-%m-%d %A')})，下次运行时间: {next_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -298,36 +302,55 @@ class StockServer:
 
                 hour = now.hour
                 minute = now.minute
-                second = now.second
+                date_key = now.strftime('%Y-%m-%d')
+                key_0924 = f"{date_key}_0924"
+                key_0925 = f"{date_key}_0925"
+                key_1455 = f"{date_key}_1455"
 
-                if second != 0 and not (hour == 9 and minute == 24 and second == 10):
+                executed = False
+
+                # 9:24 采集快照（9:24:00~9:24:59 内只执行一次）
+                if hour == 9 and minute == 24 and key_0924 not in self._executed_today:
+                    logger.info(f"=== 9:24 快照任务触发（{now.strftime('%H:%M:%S')}）===")
+                    self.capture_924_snapshot()
+                    self._executed_today.add(key_0924)
+                    executed = True
+                    # 快照若耗时过长（跨过9:25），补执行早盘选股
+                    after = datetime.datetime.now()
+                    if (after.hour == 9 and after.minute >= 25) or after.hour > 9:
+                        if key_0925 not in self._executed_today:
+                            logger.info(f"快照耗时较长，补执行9:25早盘选股（{after.strftime('%H:%M:%S')}）")
+                            self.run_morning_selection()
+                            self.snapshot_924 = None
+                            self._executed_today.add(key_0925)
+                            logger.info("集合竞价选股结束，等待尾盘时段...")
+
+                # 9:25 早盘选股（9:25:00~9:25:59 内只执行一次）
+                if hour == 9 and minute == 25 and key_0925 not in self._executed_today:
+                    logger.info(f"=== 9:25 早盘选股任务触发（{now.strftime('%H:%M:%S')}）===")
+                    self.run_morning_selection()
+                    self.snapshot_924 = None
+                    self._executed_today.add(key_0925)
+                    logger.info("集合竞价选股结束，等待尾盘时段...")
+                    executed = True
+
+                # 14:55 尾盘选股（14:55:00~14:55:59 内只执行一次）
+                if hour == 14 and minute == 55 and key_1455 not in self._executed_today:
+                    logger.info(f"=== 14:55 尾盘选股任务触发（{now.strftime('%H:%M:%S')}）===")
+                    self.run_late_session_selection()
+                    self._executed_today.add(key_1455)
+                    executed = True
+
+                if not executed:
                     next_time = self.get_next_run_time()
                     sleep_seconds = (next_time - now).total_seconds()
                     if sleep_seconds > 60:
                         logger.info(f"等待交易时段，下次运行时间: {next_time.strftime('%Y-%m-%d %H:%M:%S')}")
                         logger.info(f"休眠 {int(sleep_seconds // 60)}分钟...")
-                    time.sleep(min(sleep_seconds, 3600))
+                    time.sleep(min(sleep_seconds, 30))
                     continue
 
-                if hour == 9 and minute == 24 and second == 10:
-                    self.capture_924_snapshot()
-                    time.sleep(2)
-                elif hour == 9 and minute == 25:
-                    self.run_morning_selection()
-                    # 选股完成后清空快照
-                    self.snapshot_924 = None
-                    logger.info("集合竞价选股结束，等待尾盘时段...")
-                    time.sleep(2)
-                elif hour == 14 and minute == 55:
-                    self.run_late_session_selection()
-                    time.sleep(2)
-                else:
-                    next_time = self.get_next_run_time()
-                    sleep_seconds = (next_time - now).total_seconds()
-                    if sleep_seconds > 60:
-                        logger.info(f"等待交易时段，下次运行时间: {next_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                        logger.info(f"休眠 {int(sleep_seconds // 60)}分钟...")
-                    time.sleep(min(sleep_seconds, 3600))
+                time.sleep(2)
 
         except KeyboardInterrupt:
             logger.info("=== 服务器已停止 ===")
