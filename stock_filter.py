@@ -199,6 +199,7 @@ class StockFilter:
 
             gain_diff = None
             gain_924 = None
+            gain_924_valid = False
             amount_ratio = None
             if snapshot_924 is not None:
                 if code not in gain_924_map:
@@ -207,6 +208,7 @@ class StockFilter:
                 has_price_924 = has_price_924_map.get(code, False)
 
                 if has_price_924:
+                    gain_924_valid = True
                     gain_diff = gain - gain_924
                     if gain_diff < gain_diff_threshold:
                         continue
@@ -216,11 +218,15 @@ class StockFilter:
                         amount_ratio = safe_div(amount, amount_924)
                         if amount_ratio < amount_ratio_threshold:
                             continue
+                    else:
+                        # 9:22既无有效价格也无金额，无法判断拉升，跳过
+                        continue
 
             candidates.append({
                 'code': code, 'name': name, 'price': price,
                 'prev_close': prev_close, 'amount': amount, 'gain': gain,
-                'gain_924': gain_924, 'gain_diff': gain_diff,
+                'gain_924': gain_924, 'gain_924_valid': gain_924_valid,
+                'gain_diff': gain_diff,
                 'amount_ratio': amount_ratio, 'float_mv': float_mv,
                 'industry_raw': str(stock.get('f100', '') or ''),
                 'scheme': '方案1',
@@ -241,7 +247,7 @@ class StockFilter:
                 'prev_close': round(c['prev_close'], 2),
                 'amount': round(c['amount'] / 10000, 2),
                 'gain': round(c['gain'], 2),
-                'gain_924': round(c['gain_924'], 2) if c['gain_924'] is not None else None,
+                'gain_924': round(c['gain_924'], 2) if c['gain_924_valid'] and c['gain_924'] is not None else None,
                 'gain_diff': round(c['gain_diff'], 2) if c['gain_diff'] is not None else None,
                 'amount_ratio': round(c['amount_ratio'], 2) if c.get('amount_ratio') is not None else None,
                 'float_mv': round(c.get('float_mv', 0), 2),
