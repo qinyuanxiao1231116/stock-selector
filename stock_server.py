@@ -3,6 +3,14 @@ import os
 import time
 import datetime
 import logging
+import requests
+
+# 尝试导入 chinese_calendar（自动获取中国法定节假日，每年随库更新）
+try:
+    import chinese_calendar
+    HAS_CHINESE_CALENDAR = True
+except ImportError:
+    HAS_CHINESE_CALENDAR = False
 
 # 配置常量（带默认值兜底，避免服务器 config.py 未更新导致 ImportError）
 import config as _cfg
@@ -244,7 +252,7 @@ class StockServer:
         content += f"**合计**: {len(late_session)}只股票（方案1:{len(scheme1)}只, 方案2:{len(scheme2)}只）"
         return content
 
-    # A股法定节假日休市列表（每年需更新）
+    # A股法定节假日休市列表（后备方案，当API获取失败时使用，每年需更新）
     HOLIDAYS = {
         # 2026年
         '2026-01-01', '2026-01-02',          # 元旦
@@ -256,12 +264,46 @@ class StockServer:
         '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07',  # 国庆
     }
 
+    # 交易日历缓存：{year: set('YYYY-MM-DD', ...)}
+    _trading_dates_cache = {}
+
+    def _fetch_trading_dates(self, year):
+        """从东方财富获取指定年份的A股交易日列表（以上证指数日K线日期为准）。"""
+        if year in self._trading_dates_cache:
+            return self._trading_dates_cache[year]
+
+        url = 'http://push2his.eastmoney.com/api/qt/stock/kline/get'
+        params = {
+            'secid': '1.000001',  # 上证指数
+            'fields1': 'f1,f2,f3,f4,f5,f6',
+            'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+            'klt': '101',  # 日K
+            'fqt': '0',
+            'beg': f'{year}0101',
+            'end': f'{year}1231',
+        }
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            data = resp.json()
+            klines = data.get('data', {}).get('klines', [])
+            trading_dates = set()
+            for kline in klines:
+                date_str = kline.split(',')[0]
+                trading_dates.add(date_str)
+            if trading_dates:
+                self._trading_dates_cache[year] = trading_dates
+                logger.info(f"[交易日历] 已获取{year}年交易日，共{len(trading_dates)}天")
+                return trading_dates
+        except Exception as e:
+            logger.warning(f"[交易日历] 获取{year}年交易日失败，使用本地节假日列表: {e}")
+
+        self._trading_dates_cache[year] = None  # 标记为获取失败，不再重复请求
+        return None
+
     def is_trading_day(self):
         now = datetime.datetime.now()
-        if now.weekday() >= 5:
-            return False
-        date_str = now.strftime('%Y-%m-%d')
-        return date_str not in self.HOLIDAYS
+        today = now.date()
+        return self._is_trading_date(today)
 
     @staticmethod
     def _days_to_next_trading_day(weekday):
@@ -280,9 +322,33 @@ class StockServer:
     def _next_trading_day(self, from_date):
         """从 from_date 开始找下一个交易日（跳过周末和节假日）。"""
         candidate = from_date + datetime.timedelta(days=1)
-        while candidate.weekday() >= 5 or candidate.strftime('%Y-%m-%d') in self.HOLIDAYS:
+        while True:
+            if self._is_trading_date(candidate):
+                return candidate
             candidate += datetime.timedelta(days=1)
-        return candidate
+
+    def _is_trading_date(self, date):
+        """判断指定日期是否为A股交易日。
+        A股只在周一~周五交易，周末即使调休补班也不开盘。
+        """
+        # 周末一律非交易日（A股周末不开盘）
+        if date.weekday() >= 5:
+            return False
+
+        # 优先用 chinese_calendar 判断是否法定节假日
+        if HAS_CHINESE_CALENDAR:
+            try:
+                return not chinese_calendar.is_holiday(date)
+            except Exception:
+                pass
+
+        # 后备方案1：东方财富交易日历
+        trading_dates = self._fetch_trading_dates(date.year)
+        if trading_dates is not None:
+            return date.strftime('%Y-%m-%d') in trading_dates
+
+        # 后备方案2：本地节假日列表
+        return date.strftime('%Y-%m-%d') not in self.HOLIDAYS
 
     def get_next_run_time(self):
         now = datetime.datetime.now()
