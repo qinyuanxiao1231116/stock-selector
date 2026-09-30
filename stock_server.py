@@ -244,9 +244,24 @@ class StockServer:
         content += f"**合计**: {len(late_session)}只股票（方案1:{len(scheme1)}只, 方案2:{len(scheme2)}只）"
         return content
 
+    # A股法定节假日休市列表（每年需更新）
+    HOLIDAYS = {
+        # 2026年
+        '2026-01-01', '2026-01-02',          # 元旦
+        '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20',  # 春节
+        '2026-04-06',                         # 清明
+        '2026-05-01', '2026-05-04', '2026-05-05',  # 劳动节
+        '2026-06-19',                         # 端午
+        '2026-09-25',                         # 中秋
+        '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07',  # 国庆
+    }
+
     def is_trading_day(self):
         now = datetime.datetime.now()
-        return now.weekday() < 5
+        if now.weekday() >= 5:
+            return False
+        date_str = now.strftime('%Y-%m-%d')
+        return date_str not in self.HOLIDAYS
 
     @staticmethod
     def _days_to_next_trading_day(weekday):
@@ -262,12 +277,18 @@ class StockServer:
         else:                # 周日 → 下周一（1天）
             return 1
 
+    def _next_trading_day(self, from_date):
+        """从 from_date 开始找下一个交易日（跳过周末和节假日）。"""
+        candidate = from_date + datetime.timedelta(days=1)
+        while candidate.weekday() >= 5 or candidate.strftime('%Y-%m-%d') in self.HOLIDAYS:
+            candidate += datetime.timedelta(days=1)
+        return candidate
+
     def get_next_run_time(self):
         now = datetime.datetime.now()
 
         if not self.is_trading_day():
-            days_ahead = self._days_to_next_trading_day(now.weekday())
-            next_trading_day = now + datetime.timedelta(days=days_ahead)
+            next_trading_day = self._next_trading_day(now.date())
             return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 22, 0)
 
         run_times = [
@@ -281,8 +302,7 @@ class StockServer:
                 return run_time
 
         # 今日所有时段已过，取下一个交易日
-        days_ahead = self._days_to_next_trading_day(now.weekday())
-        next_trading_day = now + datetime.timedelta(days=days_ahead)
+        next_trading_day = self._next_trading_day(now.date())
         return datetime.datetime(next_trading_day.year, next_trading_day.month, next_trading_day.day, 9, 22, 0)
 
     def run(self):
