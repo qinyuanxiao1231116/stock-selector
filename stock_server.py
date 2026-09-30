@@ -136,7 +136,7 @@ class StockServer:
 
     def run_late_session_selection(self):
         try:
-            logger.info("=== 开始尾盘选股（14:55） ===")
+            logger.info("=== 开始尾盘选股（14:48） ===")
 
             late_session_stocks = self.filter.filter_late_session(lookback=LATE_LOOKBACK_DAYS)
             scheme1_count = sum(1 for s in late_session_stocks if s.get('scheme') == '方案1')
@@ -273,7 +273,7 @@ class StockServer:
         run_times = [
             datetime.datetime(now.year, now.month, now.day, 9, 22, 0),  # 9:22 采集快照
             datetime.datetime(now.year, now.month, now.day, 9, 25, 0),
-            datetime.datetime(now.year, now.month, now.day, 14, 55, 0),
+            datetime.datetime(now.year, now.month, now.day, 14, 48, 0),
         ]
 
         for run_time in run_times:
@@ -293,7 +293,7 @@ class StockServer:
         if WXPUSHER_APP_TOKEN and WXPUSHER_UIDS:
             channels.append(f"WxPusher({len(WXPUSHER_UIDS)}人)")
         logger.info(f"推送通道: {', '.join(channels) if channels else '未配置'}")
-        logger.info("每日运行时间: 9:22(快照)、9:25(集合竞价选股)、14:55(尾盘)")
+        logger.info("每日运行时间: 9:22(快照)、9:25(集合竞价选股)、14:48(尾盘)")
 
         # 记录今日各任务是否已执行，避免同一分钟内重复执行
         self._executed_today = set()  # 元素如 '2026-09-29_0924'
@@ -316,7 +316,7 @@ class StockServer:
                 date_key = now.strftime('%Y-%m-%d')
                 key_0922 = f"{date_key}_0922"
                 key_0925 = f"{date_key}_0925"
-                key_1455 = f"{date_key}_1455"
+                key_1448 = f"{date_key}_1448"
 
                 executed = False
 
@@ -345,11 +345,11 @@ class StockServer:
                     logger.info("集合竞价选股结束，等待尾盘时段...")
                     executed = True
 
-                # 14:55 尾盘选股（14:55:00~14:55:59 内只执行一次）
-                if hour == 14 and minute == 55 and key_1455 not in self._executed_today:
-                    logger.info(f"=== 14:55 尾盘选股任务触发（{now.strftime('%H:%M:%S')}）===")
+                # 14:48 尾盘选股（14:48:00~14:48:59 内只执行一次）
+                if hour == 14 and minute == 48 and key_1448 not in self._executed_today:
+                    logger.info(f"=== 14:48 尾盘选股任务触发（{now.strftime('%H:%M:%S')}）===")
                     self.run_late_session_selection()
-                    self._executed_today.add(key_1455)
+                    self._executed_today.add(key_1448)
                     executed = True
 
                 if not executed:
