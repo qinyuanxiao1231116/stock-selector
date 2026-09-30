@@ -178,7 +178,9 @@ class StockFilter:
                 amount_924_map[code] = to_float(stock.get('f6'))
                 f2 = to_float(stock.get('f2'))
                 f17 = to_float(stock.get('f17'))
-                has_price_924_map[code] = (f2 > 0 or f17 > 0)
+                f3 = to_float(stock.get('f3'))
+                # 有有效价格：f2/f17 有值，或 f3 在合理涨跌幅区间（非哨兵值-100）
+                has_price_924_map[code] = (f2 > 0 or f17 > 0 or (-21.0 <= f3 <= 21.0 and f3 != 0))
 
         candidates = []
         for stock in bidding_data:
@@ -210,6 +212,9 @@ class StockFilter:
                 if has_price_924:
                     gain_924_valid = True
                     gain_diff = gain - gain_924
+                    if gain_diff < 0:
+                        logger.warning(f"[早盘方案1] 拉升为负: {code} {name}, "
+                                       f"9:25涨幅={gain}%, 9:22涨幅={gain_924}%, 拉升={gain_diff}%")
                     if gain_diff < gain_diff_threshold:
                         continue
                 else:
