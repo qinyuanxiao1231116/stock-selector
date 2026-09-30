@@ -1,5 +1,8 @@
 from data_fetcher import StockDataFetcher
 import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 def to_float(val, default=0):
     try:
@@ -443,7 +446,7 @@ class StockFilter:
         if not bidding_data:
             return []
 
-        # 范围过滤：沪深主板 + 创业板，排除ST
+        # 范围过滤：沪深主板，排除ST
         filtered_stocks = []
         for stock in bidding_data:
             code = str(stock.get('f12', ''))
@@ -451,6 +454,32 @@ class StockFilter:
             if not self.is_in_scope(code) or self.is_st_stock(name):
                 continue
             filtered_stocks.append(stock)
+
+        if not filtered_stocks:
+            return []
+
+        # ===== 实时行情粗筛：减少K线请求量（从2000+只降到几百只）=====
+        # 方案1和方案2的今日形态都不是涨停/跌停，且需要一定振幅
+        pre_filtered = []
+        for stock in filtered_stocks:
+            gain = calc_gain_percent(stock)
+            high = to_float(stock.get('f15'))
+            low = to_float(stock.get('f16'))
+            pre_close = to_float(stock.get('f18'))
+            price = to_float(stock.get('f2'))
+            # 排除涨停、跌停
+            if gain >= 9.5 or gain <= -9.5:
+                continue
+            # 排除价格异常
+            if price <= 0 or pre_close <= 0:
+                continue
+            # 排除振幅过小（十字星/倒T/连阳都需要一定振幅）
+            if high > 0 and low > 0 and (high - low) / pre_close < 0.008:
+                continue
+            pre_filtered.append(stock)
+
+        logger.info(f"尾盘粗筛: {len(filtered_stocks)}只 → {len(pre_filtered)}只（排除涨跌停+振幅过小）")
+        filtered_stocks = pre_filtered
 
         if not filtered_stocks:
             return []

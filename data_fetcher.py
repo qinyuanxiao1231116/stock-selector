@@ -326,7 +326,7 @@ class StockDataFetcher:
             'end': '20500101',
         }
         try:
-            data = self._get_json(url, params, retries=3)
+            data = self._get_json(url, params, retries=1)
             if data.get('data') and data['data'].get('klines'):
                 klines = []
                 for kline_str in data['data']['klines']:
@@ -352,7 +352,7 @@ class StockDataFetcher:
 
     def _get_kline_data_batch_primary(self, codes, days=20):
         kline_info = {}
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        with ThreadPoolExecutor(max_workers=16) as executor:
             future_to_code = {executor.submit(self._get_kline_single, code, days): code for code in codes}
             for future in as_completed(future_to_code):
                 result = future.result()
